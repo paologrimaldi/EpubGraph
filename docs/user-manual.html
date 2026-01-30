@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EpubGraph User Manual</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --bg: #f8fafc;
+            --bg-dark: #0f172a;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --card-bg: #ffffff;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            padding: 3rem 0;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            margin-bottom: 2rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        nav {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        nav h2 {
+            font-size: 1rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        nav ul {
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.5rem;
+        }
+
+        nav a {
+            color: var(--primary);
+            text-decoration: none;
+            padding: 0.5rem;
+            border-radius: 6px;
+            display: block;
+            transition: background 0.2s;
+        }
+
+        nav a:hover {
+            background: var(--bg);
+        }
+
+        section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            color: var(--primary);
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border);
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            margin: 1.5rem 0 0.75rem;
+            color: var(--text);
+        }
+
+        p {
+            margin-bottom: 1rem;
+        }
+
+        ul, ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        code {
+            background: var(--bg);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background: var(--bg-dark);
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+
+        .tip {
+            background: #f0fdf4;
+            border-left: 4px solid #22c55e;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .tip strong {
+            color: #15803d;
+        }
+
+        .warning {
+            background: #fefce8;
+            border-left: 4px solid #eab308;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .warning strong {
+            color: #a16207;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .feature-card {
+            background: var(--bg);
+            padding: 1rem;
+            border-radius: 8px;
+        }
+
+        .feature-card h4 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .shortcut {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .shortcut kbd {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-family: inherit;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 1rem;
+            }
+
+            header {
+                padding: 2rem 1rem;
+            }
+
+            header h1 {
+                font-size: 1.75rem;
+            }
+
+            section {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>EpubGraph User Manual</h1>
+            <p>AI-Powered Ebook Library Manager</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <nav>
+            <h2>Table of Contents</h2>
+            <ul>
+                <li><a href="#getting-started">Getting Started</a></li>
+                <li><a href="#managing-libraries">Managing Libraries</a></li>
+                <li><a href="#browsing-books">Browsing Books</a></li>
+                <li><a href="#recommendations">AI Recommendations</a></li>
+                <li><a href="#graph-view">Book Graph</a></li>
+                <li><a href="#ratings">Ratings & Status</a></li>
+                <li><a href="#calibre">Calibre Import</a></li>
+                <li><a href="#backup">Backup & Export</a></li>
+                <li><a href="#settings">Settings</a></li>
+                <li><a href="#troubleshooting">Troubleshooting</a></li>
+            </ul>
+        </nav>
+
+        <section id="getting-started">
+            <h2>Getting Started</h2>
+
+            <h3>System Requirements</h3>
+            <ul>
+                <li><strong>Operating System:</strong> macOS 10.15+, Windows 10+, or Linux</li>
+                <li><strong>Memory:</strong> 4GB RAM minimum, 8GB recommended</li>
+                <li><strong>Storage:</strong> 100MB for the application (books are stored externally)</li>
+                <li><strong>Optional:</strong> Ollama for AI-powered recommendations</li>
+            </ul>
+
+            <h3>First Launch</h3>
+            <p>When you first launch EpubGraph, you'll see an empty library. To get started:</p>
+            <ol>
+                <li>Click the <strong>+</strong> button next to "Libraries" in the sidebar</li>
+                <li>Select a folder containing your EPUB files</li>
+                <li>EpubGraph will scan the folder and import all found books</li>
+            </ol>
+
+            <div class="tip">
+                <strong>Tip:</strong> EpubGraph doesn't copy your books - it simply creates pointers to their locations. Your files stay where they are!
+            </div>
+        </section>
+
+        <section id="managing-libraries">
+            <h2>Managing Libraries</h2>
+
+            <h3>Adding a Library</h3>
+            <p>You can add multiple library folders to organize your books:</p>
+            <ol>
+                <li>Click the <strong>+</strong> button in the sidebar</li>
+                <li>Navigate to your book folder</li>
+                <li>Click "Select" to add it</li>
+            </ol>
+
+            <h3>Scanning for New Books</h3>
+            <p>Click the refresh icon next to a library to scan for new or changed books. EpubGraph will:</p>
+            <ul>
+                <li>Find new EPUB files added since the last scan</li>
+                <li>Update metadata for modified files</li>
+                <li>Preserve your ratings and read status</li>
+            </ul>
+
+            <h3>Calibre Libraries</h3>
+            <p>EpubGraph automatically detects Calibre libraries and can import:</p>
+            <ul>
+                <li>All book metadata</li>
+                <li>Your ratings (converted from 0-10 to 1-5 scale)</li>
+                <li>Tags and series information</li>
+                <li>Cover images</li>
+            </ul>
+        </section>
+
+        <section id="browsing-books">
+            <h2>Browsing Books</h2>
+
+            <h3>Library View</h3>
+            <p>The main view shows all your books in a responsive grid. Each book card displays:</p>
+            <ul>
+                <li>Cover image (extracted from EPUB or folder)</li>
+                <li>Title and author</li>
+                <li>Your rating (if set)</li>
+                <li>Read status badge</li>
+            </ul>
+
+            <h3>Searching</h3>
+            <p>Use the search bar at the top to find books. EpubGraph uses full-text search, so you can search by:</p>
+            <ul>
+                <li>Book title</li>
+                <li>Author name</li>
+                <li>Series name</li>
+                <li>Description content</li>
+            </ul>
+
+            <h3>Sorting & Filtering</h3>
+            <p>Sort your library by:</p>
+            <ul>
+                <li><strong>Date Added:</strong> Most recently added first</li>
+                <li><strong>Title:</strong> Alphabetically by title</li>
+                <li><strong>Author:</strong> Alphabetically by author</li>
+                <li><strong>Rating:</strong> Highest rated first</li>
+            </ul>
+
+            <h3>Book Details</h3>
+            <p>Click any book to view its details panel, which shows:</p>
+            <ul>
+                <li>Full cover image</li>
+                <li>Complete metadata (author, series, publisher, etc.)</li>
+                <li>Description/synopsis</li>
+                <li>AI-generated recommendations</li>
+                <li>Rating and read status controls</li>
+            </ul>
+        </section>
+
+        <section id="recommendations">
+            <h2>AI Recommendations</h2>
+
+            <h3>How It Works</h3>
+            <p>EpubGraph uses a hybrid recommendation system that combines:</p>
+            <ul>
+                <li><strong>Content Similarity:</strong> AI analyzes book descriptions to find similar content</li>
+                <li><strong>Author Relationships:</strong> Books by the same author</li>
+                <li><strong>Series Connections:</strong> Related books in the same series</li>
+                <li><strong>Your Preferences:</strong> Based on books you've rated highly</li>
+            </ul>
+
+            <h3>Setting Up Ollama</h3>
+            <p>For AI-powered recommendations, install Ollama:</p>
+            <pre><code># macOS
+brew install ollama
+
+# Then pull the embedding model
+ollama pull nomic-embed-text</code></pre>
+
+            <p>The sidebar shows Ollama's connection status. When connected, EpubGraph will automatically generate embeddings for your books in the background.</p>
+
+            <h3>Recommendation Types</h3>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h4>Similar Content</h4>
+                    <p>Books with similar themes, topics, or writing style</p>
+                </div>
+                <div class="feature-card">
+                    <h4>Same Author</h4>
+                    <p>Other works by authors you enjoy</p>
+                </div>
+                <div class="feature-card">
+                    <h4>Series</h4>
+                    <p>Next books in series you're reading</p>
+                </div>
+                <div class="feature-card">
+                    <h4>Personalized</h4>
+                    <p>Based on your highly-rated books</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="graph-view">
+            <h2>Book Graph</h2>
+
+            <p>The Graph View visualizes relationships between your books as an interactive network.</p>
+
+            <h3>Using the Graph</h3>
+            <ol>
+                <li>Click "Book Graph" in the sidebar</li>
+                <li>Select a book to center the graph on</li>
+                <li>Explore connections by hovering over nodes</li>
+                <li>Click a node to view that book's details</li>
+            </ol>
+
+            <h3>Edge Colors</h3>
+            <ul>
+                <li><strong style="color: #3b82f6;">Blue:</strong> Similar content</li>
+                <li><strong style="color: #10b981;">Green:</strong> Same author</li>
+                <li><strong style="color: #f59e0b;">Amber:</strong> Same series</li>
+                <li><strong style="color: #8b5cf6;">Purple:</strong> Shared tags</li>
+            </ul>
+
+            <h3>Graph Controls</h3>
+            <ul>
+                <li><strong>Zoom:</strong> Use + and - buttons or scroll wheel</li>
+                <li><strong>Pan:</strong> Click and drag the background</li>
+                <li><strong>Reset:</strong> Click the reset button to center the view</li>
+                <li><strong>Depth:</strong> Adjust how many hops from the center to show</li>
+            </ul>
+        </section>
+
+        <section id="ratings">
+            <h2>Ratings & Read Status</h2>
+
+            <h3>Rating Books</h3>
+            <p>In the book details panel, click stars to rate a book from 1 to 5. Your ratings help improve recommendations.</p>
+
+            <h3>Read Status</h3>
+            <p>Track your reading progress with status options:</p>
+            <ul>
+                <li><strong>Unread:</strong> Haven't started yet</li>
+                <li><strong>Want to Read:</strong> On your reading list</li>
+                <li><strong>Reading:</strong> Currently in progress</li>
+                <li><strong>Finished:</strong> Completed reading</li>
+                <li><strong>Abandoned:</strong> Stopped reading</li>
+            </ul>
+        </section>
+
+        <section id="calibre">
+            <h2>Calibre Import</h2>
+
+            <p>EpubGraph seamlessly imports from Calibre libraries.</p>
+
+            <h3>Automatic Detection</h3>
+            <p>When you add a folder containing a <code>metadata.db</code> file, EpubGraph recognizes it as a Calibre library and imports:</p>
+            <ul>
+                <li>All book metadata (title, author, series, etc.)</li>
+                <li>Your ratings (converted to 1-5 scale)</li>
+                <li>Tags and categories</li>
+                <li>Cover images</li>
+            </ul>
+
+            <div class="warning">
+                <strong>Note:</strong> EpubGraph reads from Calibre's database but doesn't modify it. Your Calibre library remains unchanged.
+            </div>
+        </section>
+
+        <section id="backup">
+            <h2>Backup & Export</h2>
+
+            <h3>Exporting Your Library</h3>
+            <p>Export your library data to a JSON file for backup or transfer:</p>
+            <ol>
+                <li>Go to Settings</li>
+                <li>Click "Export Library"</li>
+                <li>Choose a save location</li>
+            </ol>
+
+            <p>The export includes:</p>
+            <ul>
+                <li>All book metadata</li>
+                <li>Your ratings and read status</li>
+                <li>File paths (for re-importing)</li>
+            </ul>
+
+            <h3>Importing</h3>
+            <p>Import a previously exported library:</p>
+            <ol>
+                <li>Go to Settings</li>
+                <li>Click "Import Library"</li>
+                <li>Select your export file</li>
+                <li>Choose merge mode (replace, skip, or merge)</li>
+            </ol>
+
+            <h3>Database Backup</h3>
+            <p>For a complete backup including all data:</p>
+            <ol>
+                <li>Go to Settings</li>
+                <li>Click "Create Backup"</li>
+                <li>Save the <code>.db</code> file</li>
+            </ol>
+        </section>
+
+        <section id="settings">
+            <h2>Settings</h2>
+
+            <h3>Ollama Configuration</h3>
+            <ul>
+                <li><strong>Endpoint:</strong> Ollama server URL (default: http://localhost:11434)</li>
+                <li><strong>Model:</strong> Embedding model to use (default: nomic-embed-text)</li>
+            </ul>
+
+            <h3>Library Settings</h3>
+            <ul>
+                <li><strong>Auto-scan:</strong> Automatically scan for new books periodically</li>
+                <li><strong>Scan Interval:</strong> How often to check for new books (minutes)</li>
+            </ul>
+
+            <h3>Recommendation Settings</h3>
+            <ul>
+                <li><strong>Max Recommendations:</strong> Number of recommendations to show</li>
+                <li><strong>Embedding Batch Size:</strong> Books to process at once</li>
+            </ul>
+        </section>
+
+        <section id="troubleshooting">
+            <h2>Troubleshooting</h2>
+
+            <h3>Books Not Appearing</h3>
+            <ul>
+                <li>Ensure files have the <code>.epub</code> extension</li>
+                <li>Try re-scanning the library</li>
+                <li>Check that the folder path is accessible</li>
+            </ul>
+
+            <h3>Ollama Not Connecting</h3>
+            <ul>
+                <li>Verify Ollama is running: <code>ollama serve</code></li>
+                <li>Check the endpoint in Settings</li>
+                <li>Ensure the embedding model is pulled: <code>ollama pull nomic-embed-text</code></li>
+            </ul>
+
+            <h3>Slow Performance</h3>
+            <ul>
+                <li>Large libraries (100K+ books) may take time to load initially</li>
+                <li>Embedding generation happens in the background</li>
+                <li>Graph view with many nodes may be slower</li>
+            </ul>
+
+            <h3>Missing Cover Images</h3>
+            <ul>
+                <li>EpubGraph extracts covers from EPUB files</li>
+                <li>Some EPUBs don't include cover images</li>
+                <li>Calibre covers are imported if available</li>
+            </ul>
+        </section>
+    </div>
+
+    <footer>
+        <p>EpubGraph &copy; 2024. Built with Tauri, Svelte, and Rust.</p>
+        <p>For issues and feature requests, visit our GitHub repository.</p>
+    </footer>
+</body>
+</html>

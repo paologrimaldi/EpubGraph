@@ -1,0 +1,533 @@
+@import "tailwindcss";
+@import "glasswindui";
+
+/* ============================================
+   LIQUID GLASS DESIGN SYSTEM
+   Extended styles for Alexandria AI
+   ============================================ */
+
+@theme {
+	/* Extend the default Tailwind theme */
+	--font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+				 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
+}
+
+@layer base {
+	:root {
+		/* Glass tokens - Light mode */
+		--gw-bg: oklch(0.97 0.005 250);
+		--gw-fg: oklch(0.15 0 0);
+		--gw-fg-muted: oklch(0.45 0 0);
+		--gw-border: oklch(0.82 0.02 250 / 0.5);
+		--gw-inner: oklch(1 0 0 / 0.45);
+		--gw-outer: oklch(0 0 0 / 0.06);
+		--gw-specular: oklch(1 0 0 / 0.18);
+		--gw-blur: 16px;
+		--gw-blur-heavy: 32px;
+
+		/* Accent colors */
+		--gw-accent: oklch(0.65 0.2 250);
+		--gw-accent-subtle: oklch(0.65 0.2 250 / 0.15);
+
+		/* Surface colors */
+		--gw-surface: rgba(255, 255, 255, 0.72);
+		--gw-surface-elevated: rgba(255, 255, 255, 0.85);
+		--gw-surface-overlay: rgba(255, 255, 255, 0.5);
+
+		/* Status colors */
+		--gw-success: oklch(0.65 0.2 145);
+		--gw-warning: oklch(0.75 0.15 85);
+		--gw-error: oklch(0.6 0.2 25);
+
+		/* Shadows */
+		--gw-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+		--gw-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+		--gw-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.08);
+		--gw-shadow-glass:
+			0 1px 1px rgba(0, 0, 0, 0.04),
+			0 4px 12px rgba(0, 0, 0, 0.05),
+			inset 0 1px 0 rgba(255, 255, 255, 0.5);
+	}
+
+	.dark, [data-theme="dark"] {
+		--gw-bg: oklch(0.12 0.02 250);
+		--gw-fg: oklch(0.92 0 0);
+		--gw-fg-muted: oklch(0.6 0 0);
+		--gw-border: oklch(0.35 0.02 250 / 0.4);
+		--gw-inner: oklch(1 0 0 / 0.06);
+		--gw-outer: oklch(0 0 0 / 0.4);
+		--gw-specular: oklch(1 0 0 / 0.08);
+
+		--gw-accent: oklch(0.72 0.18 250);
+		--gw-accent-subtle: oklch(0.72 0.18 250 / 0.2);
+
+		--gw-surface: rgba(30, 30, 35, 0.72);
+		--gw-surface-elevated: rgba(45, 45, 52, 0.85);
+		--gw-surface-overlay: rgba(20, 20, 25, 0.6);
+
+		--gw-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+		--gw-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+		--gw-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4);
+		--gw-shadow-glass:
+			0 1px 1px rgba(0, 0, 0, 0.15),
+			0 4px 16px rgba(0, 0, 0, 0.2),
+			inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	}
+
+	html {
+		scroll-behavior: smooth;
+		background: var(--gw-bg);
+		color: var(--gw-fg);
+	}
+
+	body {
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+
+	/* Custom scrollbar with glass effect */
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: var(--gw-border);
+		border-radius: 100px;
+		border: 2px solid transparent;
+		background-clip: padding-box;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: var(--gw-fg-muted);
+		background-clip: padding-box;
+	}
+
+	*:focus-visible {
+		outline: 2px solid var(--gw-accent);
+		outline-offset: 2px;
+	}
+}
+
+@layer components {
+	/* ============================================
+	   GLASS SIDEBAR
+	   ============================================ */
+	.glass-sidebar {
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur-heavy));
+		-webkit-backdrop-filter: blur(var(--gw-blur-heavy));
+		border-right: 1px solid var(--gw-border);
+		box-shadow:
+			inset -1px 0 0 rgba(255, 255, 255, 0.1),
+			4px 0 24px var(--gw-outer);
+	}
+
+	/* ============================================
+	   GLASS INPUT (enhanced)
+	   ============================================ */
+	.glass-input {
+		width: 100%;
+		padding: 0.625rem 0.875rem;
+		font-size: 0.875rem;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+		border: 1px solid var(--gw-border);
+		border-radius: 12px;
+		color: var(--gw-fg);
+		transition: all 0.15s ease;
+	}
+
+	.glass-input::placeholder {
+		color: var(--gw-fg-muted);
+	}
+
+	.glass-input:focus {
+		outline: none;
+		border-color: var(--gw-accent);
+		box-shadow: 0 0 0 3px var(--gw-accent-subtle);
+	}
+
+	/* ============================================
+	   GLASS NAV ITEM
+	   ============================================ */
+	.glass-nav-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.625rem 0.875rem;
+		border-radius: 12px;
+		color: var(--gw-fg-muted);
+		font-weight: 500;
+		font-size: 0.875rem;
+		transition: all 0.15s ease;
+		cursor: pointer;
+	}
+
+	.glass-nav-item:hover {
+		background: var(--gw-surface);
+		color: var(--gw-fg);
+	}
+
+	.glass-nav-item.active {
+		background: var(--gw-accent-subtle);
+		color: var(--gw-accent);
+	}
+
+	/* ============================================
+	   GLASS PROGRESS BAR
+	   ============================================ */
+	.glass-progress {
+		height: 6px;
+		background: var(--gw-surface);
+		border-radius: 100px;
+		overflow: hidden;
+	}
+
+	.glass-progress-bar {
+		height: 100%;
+		background: var(--gw-accent);
+		border-radius: 100px;
+		transition: width 0.3s ease;
+	}
+
+	/* ============================================
+	   GLASS SECTION
+	   ============================================ */
+	.glass-section {
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+		border: 1px solid var(--gw-border);
+		border-radius: 20px;
+		padding: 1.5rem;
+		box-shadow: var(--gw-shadow-sm);
+	}
+
+	/* ============================================
+	   GLASS STATUS INDICATORS
+	   ============================================ */
+	.glass-status {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		border-radius: 14px;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+	}
+
+	.glass-status-icon {
+		width: 2.25rem;
+		height: 2.25rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 10px;
+		background: var(--gw-surface-elevated);
+	}
+
+	.glass-status-success .glass-status-icon {
+		background: oklch(0.65 0.2 145 / 0.15);
+		color: oklch(0.5 0.18 145);
+	}
+
+	.dark .glass-status-success .glass-status-icon {
+		color: oklch(0.75 0.15 145);
+	}
+
+	.glass-status-warning .glass-status-icon {
+		background: oklch(0.75 0.15 85 / 0.15);
+		color: oklch(0.55 0.15 85);
+	}
+
+	.dark .glass-status-warning .glass-status-icon {
+		color: oklch(0.8 0.12 85);
+	}
+
+	.glass-status-error .glass-status-icon {
+		background: oklch(0.6 0.2 25 / 0.15);
+		color: oklch(0.5 0.18 25);
+	}
+
+	.dark .glass-status-error .glass-status-icon {
+		color: oklch(0.7 0.15 25);
+	}
+
+	.glass-status-accent .glass-status-icon {
+		background: var(--gw-accent-subtle);
+		color: var(--gw-accent);
+	}
+
+	/* ============================================
+	   UTILITY CLASSES
+	   ============================================ */
+	.text-muted {
+		color: var(--gw-fg-muted);
+	}
+
+	/* Accent text - for highlights, series, headers */
+	.text-accent {
+		color: var(--gw-accent);
+	}
+
+	.bg-glass {
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+	}
+
+	/* Liquid Glass borders - subtle, translucent, NOT dark */
+	.border-glass {
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.dark .border-glass,
+	[data-theme="dark"] .border-glass {
+		border-color: rgba(255, 255, 255, 0.08);
+	}
+
+	/* Alternative subtle border for dividers */
+	.border-glass-subtle {
+		border-color: rgba(0, 0, 0, 0.06);
+	}
+
+	.dark .border-glass-subtle,
+	[data-theme="dark"] .border-glass-subtle {
+		border-color: rgba(255, 255, 255, 0.06);
+	}
+
+	.shadow-glass {
+		box-shadow: var(--gw-shadow-glass);
+	}
+
+	/* ============================================
+	   BOOK CARD (Liquid Glass)
+	   ============================================ */
+	.card {
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 16px;
+		overflow: hidden;
+		box-shadow: var(--gw-shadow-sm);
+		transition: all 0.2s ease;
+	}
+
+	.dark .card,
+	[data-theme="dark"] .card {
+		border-color: rgba(255, 255, 255, 0.08);
+	}
+
+	.card:hover {
+		border-color: var(--gw-accent);
+		box-shadow: var(--gw-shadow-md);
+		transform: translateY(-2px);
+	}
+
+	/* Book card selection - blue accent border */
+	.card.selected,
+	.card-selected {
+		border-color: var(--gw-accent);
+		box-shadow: 0 0 0 2px var(--gw-accent-subtle), var(--gw-shadow-md);
+	}
+
+	/* ============================================
+	   LEGACY COMPATIBILITY CLASSES
+	   (For components using old Tailwind classes)
+	   ============================================ */
+
+	/* Primary/Accent colors - BLUE */
+	.text-primary-400 { color: var(--gw-accent); }
+	.text-primary-500 { color: var(--gw-accent); }
+	.text-primary-600 { color: var(--gw-accent); }
+	.border-primary-300 { border-color: var(--gw-accent-subtle); }
+	.border-primary-700 { border-color: var(--gw-accent-subtle); }
+	.bg-primary-500 { background: var(--gw-accent); }
+	.border-t-primary-500 { border-top-color: var(--gw-accent); }
+
+	/* Surface colors */
+	.bg-surface-100 { background: var(--gw-surface); }
+	.bg-surface-200 { background: var(--gw-surface); }
+	.bg-surface-300 { background: var(--gw-surface-elevated); }
+	.bg-surface-800 { background: var(--gw-surface); }
+	.bg-surface-900 { background: var(--gw-surface-overlay); }
+
+	/* Surface text colors */
+	.text-surface-300 { color: var(--gw-fg-muted); }
+	.text-surface-400 { color: var(--gw-fg-muted); }
+	.text-surface-500 { color: var(--gw-fg-muted); }
+	.text-surface-600 { color: var(--gw-fg-muted); }
+	.text-surface-700 { color: var(--gw-fg); }
+
+	/* Surface borders - Liquid Glass style (subtle, translucent) */
+	.border-surface-200 {
+		border-color: rgba(0, 0, 0, 0.04);
+	}
+	.dark .border-surface-200,
+	[data-theme="dark"] .border-surface-200 {
+		border-color: rgba(255, 255, 255, 0.06);
+	}
+
+	.border-surface-700,
+	.border-surface-800 {
+		border-color: rgba(255, 255, 255, 0.06);
+	}
+
+	/* Hover states */
+	.hover\:bg-surface-100:hover { background: var(--gw-surface); }
+	.hover\:bg-surface-200:hover { background: var(--gw-surface-elevated); }
+	.hover\:bg-surface-800:hover { background: var(--gw-surface-elevated); }
+
+	/* Group hover states for book cards */
+	.group-hover\:text-primary-400:hover,
+	.group:hover .group-hover\:text-primary-400 { color: var(--gw-accent); }
+	.group-hover\:text-primary-600:hover,
+	.group:hover .group-hover\:text-primary-600 { color: var(--gw-accent); }
+	.group-hover\:border-primary-300:hover,
+	.group:hover .group-hover\:border-primary-300 { border-color: var(--gw-accent); }
+	.group-hover\:border-primary-700:hover,
+	.group:hover .group-hover\:border-primary-700 { border-color: var(--gw-accent); }
+
+	/* Form elements */
+	.input {
+		width: 100%;
+		padding: 0.625rem 0.875rem;
+		font-size: 0.875rem;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 12px;
+		color: var(--gw-fg);
+		transition: all 0.15s ease;
+	}
+
+	.dark .input,
+	[data-theme="dark"] .input {
+		border-color: rgba(255, 255, 255, 0.08);
+	}
+
+	.input:focus {
+		outline: none;
+		border-color: var(--gw-accent);
+		box-shadow: 0 0 0 3px var(--gw-accent-subtle);
+	}
+
+	/* Buttons */
+	.btn-primary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.625rem 1rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		background: var(--gw-accent);
+		color: white;
+		border-radius: 12px;
+		transition: all 0.15s ease;
+	}
+
+	.btn-primary:hover {
+		filter: brightness(1.1);
+	}
+
+	/* ============================================
+	   GLASS SELECT (Dropdown)
+	   ============================================ */
+	.glass-select {
+		appearance: none;
+		width: 100%;
+		padding: 0.625rem 2.5rem 0.625rem 0.875rem;
+		font-size: 0.875rem;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur));
+		-webkit-backdrop-filter: blur(var(--gw-blur));
+		border: 1px solid var(--gw-border);
+		border-radius: 12px;
+		color: var(--gw-fg);
+		cursor: pointer;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.75rem center;
+		transition: all 0.15s ease;
+	}
+
+	.glass-select:focus {
+		outline: none;
+		border-color: var(--gw-accent);
+		box-shadow: 0 0 0 3px var(--gw-accent-subtle);
+	}
+}
+
+/* Book cover aspect ratio */
+.book-cover {
+	aspect-ratio: 2 / 3;
+	object-fit: cover;
+}
+
+/* Responsive book grid - auto-adjusts columns based on available space */
+.book-grid {
+	display: grid;
+	/* Minimum 140px per book, max 1fr for even distribution */
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	gap: 1rem;
+}
+
+/* On larger screens, cap the max width to prevent overly wide cards */
+@media (min-width: 1280px) {
+	.book-grid {
+		grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	}
+}
+
+/* Virtual scroll container */
+.virtual-scroll-container {
+	contain: strict;
+	will-change: transform;
+}
+
+/* Shimmer animation for loading states */
+@keyframes shimmer {
+	0% {
+		background-position: -200% 0;
+	}
+	100% {
+		background-position: 200% 0;
+	}
+}
+
+.glass-skeleton {
+	background: linear-gradient(
+		90deg,
+		var(--gw-surface) 25%,
+		var(--gw-surface-elevated) 50%,
+		var(--gw-surface) 75%
+	);
+	background-size: 200% 100%;
+	animation: shimmer 1.5s infinite;
+	border-radius: 8px;
+}
+
+/* Pulse animation for active states */
+@keyframes pulse-glow {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.6;
+	}
+}
+
+.animate-pulse-glow {
+	animation: pulse-glow 2s ease-in-out infinite;
+}
