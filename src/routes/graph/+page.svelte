@@ -5,6 +5,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import GraphView from '$lib/components/GraphView.svelte';
 	import type { Book } from '$lib/api/commands';
+	import { recentlyViewedIds, addRecentlyViewed } from '$lib/stores/recentlyViewed';
 
 	let centerId: number | null = null;
 	let depth = 2;
@@ -39,14 +40,29 @@
 
 	async function loadRecentBooks() {
 		try {
-			const result = await invoke('query_books', {
-				query: {
-					limit: 10,
-					sortBy: 'dateAdded',
-					sortOrder: 'desc'
-				}
-			});
-			recentBooks = (result as any).items;
+			// Get recently viewed book IDs
+			const recentIds = $recentlyViewedIds.slice(0, 10);
+
+			if (recentIds.length > 0) {
+				// Load books by their IDs
+				const bookPromises = recentIds.map((id) =>
+					invoke('get_book', { id }).catch(() => null)
+				);
+				const books = await Promise.all(bookPromises);
+				recentBooks = books.filter((b): b is Book => b !== null);
+			}
+
+			// If no recent books, fall back to recently added
+			if (recentBooks.length === 0) {
+				const result = await invoke('query_books', {
+					query: {
+						limit: 10,
+						sortBy: 'dateAdded',
+						sortOrder: 'desc'
+					}
+				});
+				recentBooks = (result as any).items;
+			}
 		} catch (e) {
 			console.error('Failed to load recent books:', e);
 		}
@@ -79,6 +95,9 @@
 		centerBook = book;
 		searchQuery = '';
 		searchResults = [];
+
+		// Track as recently viewed
+		addRecentlyViewed(book.id);
 
 		// Update URL using SvelteKit's navigation
 		const url = new URL($page.url);
@@ -227,9 +246,9 @@
 				</div>
 			</div>
 
-			<!-- Recent Books -->
+			<!-- Recently Viewed Books -->
 			<div class="flex-1 overflow-y-auto p-4">
-				<p class="text-xs font-medium text-surface-500 uppercase tracking-wide mb-3">Recent Books</p>
+				<p class="text-xs font-medium text-surface-500 uppercase tracking-wide mb-3">Recently Viewed</p>
 				<div class="space-y-2">
 					{#each recentBooks as book}
 						<button

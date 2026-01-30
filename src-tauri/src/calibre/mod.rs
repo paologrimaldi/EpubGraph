@@ -3,7 +3,7 @@
 //! Reads metadata from Calibre's metadata.db SQLite database
 
 use crate::db::{Database, NewBook};
-use crate::{AppError, AppResult};
+use crate::AppResult;
 use rusqlite::Connection;
 use std::path::Path;
 

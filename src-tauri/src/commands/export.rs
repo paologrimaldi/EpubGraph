@@ -1,10 +1,10 @@
 //! Export and backup commands
 
-use crate::db::{Book, Database};
+use crate::db::Book;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::sync::Arc;
 use tauri::State;

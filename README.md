@@ -17,6 +17,9 @@
 
 ---
 
+### TLDR
+I didn’t build this to manage books I built it because I had too many. Calibre organizes them, sure, but it never tells me which one is worth my time tonight. This app does.
+
 ## Features
 
 ### Core Library Management
@@ -43,6 +46,13 @@
 - **Interactive Exploration**: Click, hover, zoom, and pan
 - **Real-Time Updates**: Graph updates as you add books
 
+### Up Next - 3D Reading Queue
+- **3D Bookshelf**: Browse your reading queue in an interactive 3D bookshelf
+- **Smart Queue**: Automatically includes books marked as "Want to Read"
+- **Manual Curation**: Add any book to Up Next from the library
+- **Quick Actions**: Change read status or remove books directly from the shelf
+- **Dark Mode Support**: Wall color adapts to your theme preference
+
 ### Cross-Platform
 - **macOS**: Native Apple Silicon and Intel support
 - **Windows**: Windows 10/11 compatible
@@ -55,12 +65,18 @@
 <div align="center">
 <table>
 <tr>
-<td><img src="docs/screenshots/library.png" alt="Library View" width="400"/></td>
-<td><img src="docs/screenshots/graph.png" alt="Graph View" width="400"/></td>
+<td><img src="screenshots/1.png" alt="Library View" width="400"/></td>
+<td><img src="screenshots/2.png" alt="Graph View" width="400"/></td>
 </tr>
 <tr>
 <td align="center"><em>Library Browser</em></td>
 <td align="center"><em>Book Graph</em></td>
+</tr>
+<tr>
+<td colspan="2"><img src="screenshots/3.png" alt="Up Next 3D Bookshelf" width="600"/></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><em>Up Next - 3D Bookshelf</em></td>
 </tr>
 </table>
 </div>
@@ -148,8 +164,12 @@ epubgraph/
 │   ├── lib/
 │   │   ├── api/           # Tauri command wrappers
 │   │   ├── components/    # Svelte components
+│   │   │   └── bookshelf/ # 3D bookshelf (Three.js)
 │   │   └── stores/        # State management
 │   └── routes/            # Page routes
+│       ├── (app)/         # Library view
+│       ├── graph/         # Graph visualization
+│       └── up-next/       # 3D reading queue
 ├── src-tauri/             # Rust backend
 │   └── src/
 │       ├── commands/      # Tauri command handlers
@@ -160,7 +180,7 @@ epubgraph/
 │       ├── scanner/       # Filesystem scanner
 │       ├── vector/        # Embedding storage
 │       └── watcher/       # File system watcher
-├── docs/                  # Documentation
+├── screenshots/           # App screenshots
 └── static/               # Static assets
 ```
 
@@ -199,7 +219,8 @@ pnpm tauri build
 | Database | SQLite + FTS5 |
 | Graph | petgraph |
 | AI | Ollama (nomic-embed-text) |
-| Visualization | Sigma.js + Graphology |
+| Graph Visualization | Sigma.js + Graphology |
+| 3D Visualization | Three.js |
 
 ### Data Flow
 
@@ -266,6 +287,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [Ollama](https://ollama.ai) - Local AI inference
 - [petgraph](https://github.com/petgraph/petgraph) - Graph data structures
 - [Sigma.js](https://www.sigmajs.org) - Graph visualization
+- [Three.js](https://threejs.org) - 3D visualization
 
 ---
 
@@ -273,6 +295,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 **[⬆ Back to Top](#epubgraph)**
 
-Made with ❤️ by the EpubGraph team
-
+Made with ❤️ by a Book lover to other book lovers! Have fun
+Thanks to Recess for introducing me to svelte, to Antoine de Saint-Exupéry for introducing me to books, 
+and to the Claude Code team for giving this humble dev superpowers.
 </div>

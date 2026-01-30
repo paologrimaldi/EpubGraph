@@ -2,6 +2,10 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import type { Book } from '$lib/api/commands';
 	import BookCard from './BookCard.svelte';
+	import ContextMenu from './ContextMenu.svelte';
+	import type { ContextMenuItem } from './ContextMenu.svelte';
+	import { isInUpNextSync, toggleUpNext, loadUpNextBooks } from '$lib/stores/upnext';
+	import { ListPlus, ListMinus, ExternalLink, Info } from 'lucide-svelte';
 
 	export let books: Book[] = [];
 	export let loading = false;
@@ -12,6 +16,60 @@
 		loadMore: void;
 		select: Book;
 	}>();
+
+	// Context menu state
+	let contextMenuVisible = false;
+	let contextMenuX = 0;
+	let contextMenuY = 0;
+	let contextMenuBook: Book | null = null;
+
+	function handleBookContextMenu(event: CustomEvent<{ book: Book; x: number; y: number }>) {
+		const { book, x, y } = event.detail;
+		contextMenuBook = book;
+		contextMenuX = x;
+		contextMenuY = y;
+		contextMenuVisible = true;
+	}
+
+	function closeContextMenu() {
+		contextMenuVisible = false;
+		contextMenuBook = null;
+	}
+
+	async function handleToggleUpNext() {
+		if (!contextMenuBook) return;
+		await toggleUpNext(contextMenuBook.id);
+		await loadUpNextBooks();
+	}
+
+	function handleOpenBook() {
+		if (!contextMenuBook) return;
+		window.__TAURI__?.shell?.open(contextMenuBook.path);
+	}
+
+	function handleViewDetails() {
+		if (!contextMenuBook) return;
+		dispatch('select', contextMenuBook);
+	}
+
+	$: contextMenuItems = contextMenuBook ? [
+		{
+			label: isInUpNextSync(contextMenuBook.id) ? 'Remove from Up Next' : 'Add to Up Next',
+			action: handleToggleUpNext,
+			icon: isInUpNextSync(contextMenuBook.id) ? ListMinus : ListPlus
+		},
+		{ separator: true, label: '', action: () => {} },
+		{
+			label: 'Open Book',
+			action: handleOpenBook,
+			icon: ExternalLink
+		},
+		{
+			label: 'View Details',
+			action: handleViewDetails,
+			icon: Info
+		}
+	] as ContextMenuItem[] : [];
 
 	let containerEl: HTMLElement;
 	let scrollParent: HTMLElement | null = null;
@@ -46,9 +104,24 @@
 	<!-- Book Grid - auto-fit ensures minimum width per book -->
 	<div class="book-grid">
 		{#each books as book (book.id)}
-			<BookCard {book} selected={selectedBookId === book.id} on:click={() => dispatch('select', book)} />
+			<BookCard
+				{book}
+				selected={selectedBookId === book.id}
+				on:click={() => dispatch('select', book)}
+				on:contextmenu={handleBookContextMenu}
+			/>
 		{/each}
 	</div>
+
+	<!-- Context Menu -->
+	{#if contextMenuVisible && contextMenuBook}
+		<ContextMenu
+			items={contextMenuItems}
+			x={contextMenuX}
+			y={contextMenuY}
+			on:close={closeContextMenu}
+		/>
+	{/if}
 
 	<!-- Loading indicator -->
 	{#if loading}

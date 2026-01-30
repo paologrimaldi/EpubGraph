@@ -7,7 +7,7 @@
 //! 4. Personalized PageRank for relevance scoring
 //! 5. Maximal Marginal Relevance for diversity
 
-use crate::db::{Book, BookEdge, Database};
+use crate::db::{Book, Database};
 use crate::AppResult;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -433,7 +433,7 @@ pub fn generate_recommendations(
     );
 
     // Stage 3: Combine scores
-    let mut scored: Vec<RecommendationScore> = candidates
+    let scored: Vec<RecommendationScore> = candidates
         .into_iter()
         .map(|c| {
             let pr_score = pagerank_scores.get(&c.book_id).copied().unwrap_or(0.0);
@@ -486,52 +486,56 @@ pub fn generate_recommendations(
 }
 
 /// Compute edge weight between two books based on multiple signals
+/// Returns the primary edge (combined score, primary type)
 pub fn compute_edge_weight(
     book_a: &Book,
     book_b: &Book,
     embedding_similarity: Option<f64>,
 ) -> (f64, String) {
-    let mut components: Vec<(f64, f64, &str)> = Vec::new(); // (score, weight, type)
+    let edges = compute_all_edge_weights(book_a, book_b, embedding_similarity);
 
-    // Content similarity from embeddings (40% weight)
+    if edges.is_empty() {
+        return (0.0, "none".to_string());
+    }
+
+    // Return the highest weighted edge
+    edges.into_iter()
+        .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or((0.0, "none".to_string()))
+}
+
+/// Compute ALL qualifying edge weights between two books
+/// Returns a vector of (weight, edge_type) for each qualifying relationship
+pub fn compute_all_edge_weights(
+    book_a: &Book,
+    book_b: &Book,
+    embedding_similarity: Option<f64>,
+) -> Vec<(f64, String)> {
+    let mut edges: Vec<(f64, String)> = Vec::new();
+
+    // Content similarity from embeddings
     if let Some(sim) = embedding_similarity {
         if sim > 0.3 {
-            components.push((sim, 0.4, "content"));
+            edges.push((sim, "content".to_string()));
         }
     }
 
-    // Same author (20% weight)
+    // Same author
     if book_a.author.is_some() && book_a.author == book_b.author {
-        components.push((0.85, 0.2, "author"));
+        edges.push((0.85, "author".to_string()));
     }
 
-    // Same series (20% weight)
+    // Same series
     if book_a.series.is_some() && book_a.series == book_b.series {
         let series_sim = match (book_a.series_index, book_b.series_index) {
             (Some(a), Some(b)) if (a - b).abs() <= 1.0 => 0.95, // Adjacent
             (Some(_), Some(_)) => 0.75,                         // Same series
             _ => 0.7,
         };
-        components.push((series_sim, 0.2, "series"));
+        edges.push((series_sim, "series".to_string()));
     }
 
-    // Calculate weighted average
-    if components.is_empty() {
-        return (0.0, "none".to_string());
-    }
-
-    let total_weight: f64 = components.iter().map(|(_, w, _)| w).sum();
-    let weighted_score: f64 = components.iter().map(|(s, w, _)| s * w).sum();
-    let final_score = weighted_score / total_weight;
-
-    // Determine primary edge type
-    let primary_type = components
-        .iter()
-        .max_by(|a, b| (a.0 * a.1).partial_cmp(&(b.0 * b.1)).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(_, _, t)| t.to_string())
-        .unwrap_or_else(|| "content".to_string());
-
-    (final_score, primary_type)
+    edges
 }
 
 #[cfg(test)]

@@ -24,8 +24,10 @@
 		Sparkles,
 		Network,
 		AlertTriangle,
-		Unplug
+		Unplug,
+		ListTodo
 	} from 'lucide-svelte';
+	import { upNextTotalCount, loadUpNextBooks } from '$lib/stores/upnext';
 
 	let ollamaStatus: OllamaStatus | null = null;
 	let processingStatus: ProcessingStatus | null = null;
@@ -84,6 +86,7 @@
 		// Load initial data (non-blocking)
 		loadLibraries().catch((err) => console.error('Failed to load libraries:', err));
 		loadStatus().catch((err) => console.error('Failed to load status:', err));
+		loadUpNextBooks().catch((err) => console.error('Failed to load up next books:', err));
 
 		// Set up scan event listeners
 		cleanupEventListeners = await setupScanEventListeners();
@@ -498,6 +501,18 @@
 		>
 			<BookOpen class="w-5 h-5" />
 			<span>Library</span>
+		</a>
+		<a
+			href="/up-next"
+			class="glass-nav-item {currentPath === '/up-next' ? 'active' : ''}"
+		>
+			<ListTodo class="w-5 h-5" />
+			<span>Up Next</span>
+			{#if $upNextTotalCount > 0}
+				<span class="ml-auto text-xs font-medium px-2 py-0.5 rounded-full" style="background: var(--gw-accent-subtle); color: var(--gw-accent)">
+					{$upNextTotalCount}
+				</span>
+			{/if}
 		</a>
 		<a
 			href="/graph"

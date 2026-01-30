@@ -99,7 +99,7 @@ pub async fn prioritize_book(
 #[tauri::command]
 pub async fn process_embeddings_batch(
     state: State<'_, Arc<AppState>>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     batch_size: Option<i64>,
 ) -> Result<ProcessingResult, String> {
     use crate::ollama::OllamaClient;

@@ -4,7 +4,7 @@ use crate::AppResult;
 use rusqlite::Connection;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> AppResult<()> {
@@ -32,7 +32,10 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     if current_version < 1 {
         migrate_v1(conn)?;
     }
-    
+    if current_version < 2 {
+        migrate_v2(conn)?;
+    }
+
     Ok(())
 }
 
@@ -261,5 +264,35 @@ fn migrate_v1(conn: &Connection) -> AppResult<()> {
     )?;
     
     tracing::info!("Migration v1 applied successfully");
+    Ok(())
+}
+
+/// Up Next feature migration
+fn migrate_v2(conn: &Connection) -> AppResult<()> {
+    tracing::info!("Applying migration v2: Up Next table");
+
+    conn.execute_batch(r#"
+        -- ============================================
+        -- UP NEXT TABLE
+        -- ============================================
+
+        -- Up Next reading queue
+        CREATE TABLE IF NOT EXISTS up_next (
+            book_id INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+            added_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+            position INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- Index for ordering
+        CREATE INDEX IF NOT EXISTS idx_up_next_position ON up_next(position ASC);
+    "#)?;
+
+    // Record migration
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?)",
+        [2],
+    )?;
+
+    tracing::info!("Migration v2 applied successfully");
     Ok(())
 }

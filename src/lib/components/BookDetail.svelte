@@ -4,6 +4,7 @@
 	import type { Book, Recommendation, ReadStatus } from '$lib/api/commands';
 	import { getCoverImage, getRecommendations, formatFileSize, formatDate, getReasonText } from '$lib/api/commands';
 	import { rateBook, setBookReadStatus } from '$lib/stores/library';
+	import { isInUpNextSync, toggleUpNext, loadUpNextBooks, upNextBooks, removeFromUpNext } from '$lib/stores/upnext';
 	import {
 		X,
 		Star,
@@ -13,12 +14,16 @@
 		User,
 		BookMarked,
 		Sparkles,
-		ExternalLink
+		ExternalLink,
+		ListPlus,
+		ListMinus
 	} from 'lucide-svelte';
 
 	export let book: Book;
+	// Context: 'library' shows Up Next button, 'upnext' hides it and auto-removes on status change
+	export let context: 'library' | 'upnext' = 'library';
 
-	const dispatch = createEventDispatcher<{ close: void }>();
+	const dispatch = createEventDispatcher<{ close: void; bookRemoved: number }>();
 
 	let coverSrc: string | null = null;
 	let recommendations: Recommendation[] = [];
@@ -86,13 +91,55 @@
 
 	async function handleStatusChange(event: Event) {
 		const select = event.target as HTMLSelectElement;
-		await setBookReadStatus(book.id, select.value as ReadStatus);
+		const newStatus = select.value as ReadStatus;
+		await setBookReadStatus(book.id, newStatus);
+
+		// If we're on the Up Next page and status changed, remove the book from Up Next
+		// (since explicit Up Next entries should be removed when status changes)
+		if (context === 'upnext') {
+			await removeFromUpNext(book.id);
+			await loadUpNextBooks();
+			dispatch('bookRemoved', book.id);
+			dispatch('close');
+		}
 	}
 
 	function openFile() {
 		// This would use Tauri's shell API to open the file
 		window.__TAURI__?.shell?.open(book.path);
 	}
+
+	let isTogglingUpNext = false;
+
+	async function handleToggleUpNext() {
+		if (isTogglingUpNext) return;
+		isTogglingUpNext = true;
+		try {
+			await toggleUpNext(book.id);
+			await loadUpNextBooks();
+		} finally {
+			isTogglingUpNext = false;
+		}
+	}
+
+	async function handleRemoveFromUpNext() {
+		if (isTogglingUpNext) return;
+		isTogglingUpNext = true;
+		try {
+			await removeFromUpNext(book.id);
+			await loadUpNextBooks();
+			dispatch('bookRemoved', book.id);
+			dispatch('close');
+		} finally {
+			isTogglingUpNext = false;
+		}
+	}
+
+	// Reactive: check if book is in Up Next
+	$: isBookInUpNext = isInUpNextSync(book.id);
+
+	// Re-check when upNextBooks changes
+	$: $upNextBooks, isBookInUpNext = isInUpNextSync(book.id);
 </script>
 
 <div class="flex flex-col h-full bg-glass">
@@ -247,7 +294,7 @@
 		</div>
 
 		<!-- Actions -->
-		<div class="pt-4 border-t border-glass-subtle">
+		<div class="pt-4 border-t border-glass-subtle space-y-2">
 			<button
 				class="btn-primary w-full"
 				on:click={openFile}
@@ -255,6 +302,32 @@
 				<ExternalLink class="w-4 h-4" />
 				Open Book
 			</button>
+			{#if context === 'library'}
+				<!-- Library: Show add/remove toggle -->
+				<button
+					class="btn-secondary w-full flex items-center justify-center gap-2"
+					on:click={handleToggleUpNext}
+					disabled={isTogglingUpNext}
+				>
+					{#if isBookInUpNext}
+						<ListMinus class="w-4 h-4" />
+						Remove from Up Next
+					{:else}
+						<ListPlus class="w-4 h-4" />
+						Add to Up Next
+					{/if}
+				</button>
+			{:else if context === 'upnext' && isBookInUpNext}
+				<!-- Up Next page: Only show remove button if book was explicitly added (not via "want" status) -->
+				<button
+					class="btn-secondary w-full flex items-center justify-center gap-2"
+					on:click={handleRemoveFromUpNext}
+					disabled={isTogglingUpNext}
+				>
+					<ListMinus class="w-4 h-4" />
+					Remove from Up Next
+				</button>
+			{/if}
 		</div>
 	</div>
 </div>

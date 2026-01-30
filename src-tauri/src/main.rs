@@ -71,6 +71,13 @@ fn main() {
             commands::export::import_library,
             commands::export::create_backup,
             commands::export::restore_backup,
+            // Up Next commands
+            commands::upnext::get_up_next_books,
+            commands::upnext::add_to_up_next,
+            commands::upnext::remove_from_up_next,
+            commands::upnext::is_in_up_next,
+            commands::upnext::get_up_next_count,
+            commands::upnext::get_want_to_read_books,
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

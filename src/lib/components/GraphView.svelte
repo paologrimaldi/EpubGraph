@@ -155,7 +155,7 @@
 			labelWeight: '500',
 			labelColor: { color: '#1f2937' },
 			stagePadding: 50,
-			nodeReducer: (node, data) => {
+			nodeReducer: (node: string, data: Record<string, any>) => {
 				const res = { ...data };
 				if (hoveredNode) {
 					if (node === hoveredNode || graph?.hasEdge(node, hoveredNode) || graph?.hasEdge(hoveredNode, node)) {
@@ -167,7 +167,7 @@
 				}
 				return res;
 			},
-			edgeReducer: (edge, data) => {
+			edgeReducer: (edge: string, data: Record<string, any>) => {
 				const res = { ...data };
 				if (hoveredNode) {
 					const [source, target] = graph!.extremities(edge);
@@ -180,7 +180,7 @@
 		});
 
 		// Event handlers
-		sigma.on('enterNode', ({ node }) => {
+		sigma.on('enterNode', ({ node }: { node: string }) => {
 			hoveredNode = node;
 			sigma?.refresh();
 		});
@@ -190,7 +190,7 @@
 			sigma?.refresh();
 		});
 
-		sigma.on('clickNode', ({ node }) => {
+		sigma.on('clickNode', ({ node }: { node: string }) => {
 			const nodeData = graph?.getNodeAttributes(node);
 			if (nodeData?.originalData && onNodeClick) {
 				onNodeClick(nodeData.originalData.id);
@@ -211,15 +211,15 @@
 			const forces: Map<string, { x: number; y: number }> = new Map();
 
 			// Initialize forces
-			graph.forEachNode((node) => {
+			graph.forEachNode((node: string) => {
 				forces.set(node, { x: 0, y: 0 });
 			});
 
 			// Repulsive forces between all nodes
-			graph.forEachNode((nodeA) => {
+			graph.forEachNode((nodeA: string) => {
 				const posA = { x: graph!.getNodeAttribute(nodeA, 'x'), y: graph!.getNodeAttribute(nodeA, 'y') };
 
-				graph!.forEachNode((nodeB) => {
+				graph!.forEachNode((nodeB: string) => {
 					if (nodeA === nodeB) return;
 
 					const posB = { x: graph!.getNodeAttribute(nodeB, 'x'), y: graph!.getNodeAttribute(nodeB, 'y') };
@@ -235,7 +235,7 @@
 			});
 
 			// Attractive forces along edges
-			graph.forEachEdge((edge, attrs, source, target) => {
+			graph.forEachEdge((edge: string, attrs: Record<string, any>, source: string, target: string) => {
 				const posA = { x: graph!.getNodeAttribute(source, 'x'), y: graph!.getNodeAttribute(source, 'y') };
 				const posB = { x: graph!.getNodeAttribute(target, 'x'), y: graph!.getNodeAttribute(target, 'y') };
 
@@ -254,7 +254,7 @@
 			});
 
 			// Apply gravity towards center
-			graph.forEachNode((node) => {
+			graph.forEachNode((node: string) => {
 				const pos = { x: graph!.getNodeAttribute(node, 'x'), y: graph!.getNodeAttribute(node, 'y') };
 				const forceN = forces.get(node)!;
 				forceN.x -= pos.x * gravity;
@@ -262,7 +262,7 @@
 			});
 
 			// Update positions
-			graph.forEachNode((node) => {
+			graph.forEachNode((node: string) => {
 				// Don't move center node
 				if (node === String(centerId)) return;
 
@@ -333,8 +333,8 @@
 		}
 	});
 
-	// Reload when centerId changes (only if libraries are loaded)
-	$: if (browser && centerId !== null && Graph && SigmaClass) {
+	// Reload when centerId, depth, or maxNodes changes (only if libraries are loaded)
+	$: if (browser && centerId !== null && Graph && SigmaClass && depth && maxNodes) {
 		loadGraphData();
 	}
 

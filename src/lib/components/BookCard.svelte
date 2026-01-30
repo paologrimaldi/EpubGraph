@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte';
 	import type { Book } from '$lib/api/commands';
 	import { getCoverImage } from '$lib/api/commands';
 	import { onMount } from 'svelte';
@@ -6,6 +7,19 @@
 
 	export let book: Book;
 	export let selected = false;
+
+	const dispatch = createEventDispatcher<{
+		contextmenu: { book: Book; x: number; y: number };
+	}>();
+
+	function handleContextMenu(event: MouseEvent) {
+		event.preventDefault();
+		dispatch('contextmenu', {
+			book,
+			x: event.clientX,
+			y: event.clientY
+		});
+	}
 
 	let coverSrc: string | null = null;
 	let loading = true;
@@ -39,6 +53,7 @@
 <button
 	class="group text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gw-accent)] focus-visible:ring-offset-2 rounded-2xl"
 	on:click
+	on:contextmenu={handleContextMenu}
 >
 	<div
 		class="card overflow-hidden transition-all duration-200 group-hover:shadow-lg"

@@ -178,6 +178,7 @@ struct TagsResponse {
 struct ModelInfo {
     name: String,
     #[serde(default)]
+    #[allow(dead_code)]
     size: i64,
 }
 

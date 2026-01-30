@@ -198,6 +198,7 @@ fn generate_author_sort(author: &str) -> String {
 }
 
 /// Calculate SHA-256 hash of file for deduplication
+#[allow(dead_code)]
 fn calculate_file_hash(path: &Path) -> AppResult<String> {
     use sha2::{Sha256, Digest};
     
@@ -238,7 +239,7 @@ mod regex_lite {
                     if let Some(end) = text[start..].find(')') {
                         let inner = &text[start + 1..start + end];
                         if let Some(comma) = inner.find(',') {
-                            let series = &inner[..comma];
+                            let _series = &inner[..comma];
                             let rest = inner[comma + 1..].trim();
                             let rest = rest.trim_start_matches('#');
                             if let Ok(_num) = rest.parse::<f64>() {

@@ -6,7 +6,7 @@
 //! - Handle library scanning
 
 use crate::db::Database;
-use crate::graph::{compute_edge_weight, BookGraph};
+use crate::graph::compute_all_edge_weights;
 use crate::ollama::{book_to_embedding_text, OllamaClient};
 use crate::state::BackgroundJob;
 use crate::vector::VectorStore;
@@ -190,14 +190,18 @@ impl BackgroundWorker {
             }
 
             if let Ok(target_book) = self.db.get_book(target_id) {
-                let (weight, edge_type) = compute_edge_weight(
+                // Get ALL qualifying edge types (content, author, series)
+                let all_edges = compute_all_edge_weights(
                     &source_book,
                     &target_book,
                     Some(embedding_sim),
                 );
 
-                if weight >= 0.3 {
-                    edges_to_insert.push((book_id, target_id, edge_type, weight));
+                // Store each qualifying edge type separately
+                for (weight, edge_type) in all_edges {
+                    if weight >= 0.3 {
+                        edges_to_insert.push((book_id, target_id, edge_type, weight));
+                    }
                 }
             }
         }

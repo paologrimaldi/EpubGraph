@@ -2,7 +2,7 @@
 
 use super::{Book, BookEdge, BookQuery, Database, Library, PagedResult, Settings};
 use crate::{AppError, AppResult};
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Row};
 
 impl Database {
     // ============================================
@@ -572,6 +572,102 @@ impl Database {
 
         tx.commit()?;
         Ok(())
+    }
+
+    // ============================================
+    // STATISTICS
+    // ============================================
+
+    // ============================================
+    // UP NEXT OPERATIONS
+    // ============================================
+
+    /// Get all books in the Up Next queue
+    pub fn get_up_next_books(&self) -> AppResult<Vec<Book>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT b.*, r.rating, r.read_status
+                 FROM books b
+                 LEFT JOIN ratings r ON b.id = r.book_id
+                 INNER JOIN up_next un ON b.id = un.book_id
+                 ORDER BY un.position ASC, un.added_at ASC"
+            )?;
+
+            let books = stmt.query_map([], row_to_book)?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(books)
+        })
+    }
+
+    /// Add a book to the Up Next queue
+    pub fn add_to_up_next(&self, book_id: i64) -> AppResult<()> {
+        self.with_conn(|conn| {
+            // Get the next position (max + 1)
+            let next_position: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(position), -1) + 1 FROM up_next",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            conn.execute(
+                "INSERT OR IGNORE INTO up_next (book_id, position) VALUES (?, ?)",
+                params![book_id, next_position],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Remove a book from the Up Next queue
+    pub fn remove_from_up_next(&self, book_id: i64) -> AppResult<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM up_next WHERE book_id = ?", [book_id])?;
+            Ok(())
+        })
+    }
+
+    /// Check if a book is in the Up Next queue
+    pub fn is_in_up_next(&self, book_id: i64) -> AppResult<bool> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM up_next WHERE book_id = ?",
+                [book_id],
+                |row| row.get(0),
+            )?;
+            Ok(count > 0)
+        })
+    }
+
+    /// Get the count of books in the Up Next queue
+    pub fn get_up_next_count(&self) -> AppResult<i64> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM up_next",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok(count)
+        })
+    }
+
+    /// Get books with "want" read status (for automatic Up Next inclusion)
+    pub fn get_want_to_read_books(&self) -> AppResult<Vec<Book>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT b.*, r.rating, r.read_status
+                 FROM books b
+                 LEFT JOIN ratings r ON b.id = r.book_id
+                 WHERE r.read_status = 'want'
+                 ORDER BY r.date_rated DESC"
+            )?;
+
+            let books = stmt.query_map([], row_to_book)?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(books)
+        })
     }
 
     // ============================================

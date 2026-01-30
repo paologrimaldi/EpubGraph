@@ -5,6 +5,7 @@ import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import * as api from '$lib/api/commands';
 import type { Book, Library, BookQuery, PagedResult } from '$lib/api/commands';
+import { addRecentlyViewed } from './recentlyViewed';
 
 // ============================================
 // State
@@ -217,6 +218,10 @@ export async function setSort(by: BookQuery['sortBy'], order: BookQuery['sortOrd
 
 export async function selectBook(book: Book | null): Promise<void> {
 	selectedBook.set(book);
+	// Track recently viewed books
+	if (book) {
+		addRecentlyViewed(book.id);
+	}
 }
 
 export async function rateBook(bookId: number, rating: number): Promise<void> {

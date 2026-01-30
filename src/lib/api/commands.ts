@@ -408,6 +408,40 @@ export async function restoreBackup(path: string): Promise<void> {
 }
 
 // ============================================
+// Up Next Commands
+// ============================================
+
+export async function getUpNextBooks(): Promise<Book[]> {
+	const invoke = await getInvoke();
+	return invoke('get_up_next_books');
+}
+
+export async function addToUpNext(bookId: number): Promise<void> {
+	const invoke = await getInvoke();
+	return invoke('add_to_up_next', { bookId });
+}
+
+export async function removeFromUpNext(bookId: number): Promise<void> {
+	const invoke = await getInvoke();
+	return invoke('remove_from_up_next', { bookId });
+}
+
+export async function isInUpNext(bookId: number): Promise<boolean> {
+	const invoke = await getInvoke();
+	return invoke('is_in_up_next', { bookId });
+}
+
+export async function getUpNextCount(): Promise<number> {
+	const invoke = await getInvoke();
+	return invoke('get_up_next_count');
+}
+
+export async function getWantToReadBooks(): Promise<Book[]> {
+	const invoke = await getInvoke();
+	return invoke('get_want_to_read_books');
+}
+
+// ============================================
 // Utility Functions
 // ============================================
 

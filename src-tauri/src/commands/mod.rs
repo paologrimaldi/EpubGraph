@@ -6,3 +6,4 @@ pub mod library;
 pub mod ollama;
 pub mod recommendations;
 pub mod settings;
+pub mod upnext;
