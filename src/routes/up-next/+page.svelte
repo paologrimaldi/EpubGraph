@@ -33,7 +33,7 @@
 </script>
 
 <svelte:head>
-	<title>Up Next - Alexandria</title>
+	<title>Up Next - EpubGraph</title>
 </svelte:head>
 
 <div class="flex h-full">

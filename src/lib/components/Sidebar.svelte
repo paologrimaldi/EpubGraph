@@ -234,7 +234,7 @@
 			<BookOpen class="w-6 h-6" style="color: var(--gw-accent)" />
 		</div>
 		<div>
-			<h1 class="font-semibold text-lg">Alexandria</h1>
+			<h1 class="font-semibold text-lg">EpubGraph</h1>
 			<p class="text-xs text-muted">AI-Powered Library</p>
 		</div>
 	</div>

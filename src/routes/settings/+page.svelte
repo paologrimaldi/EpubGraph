@@ -340,7 +340,7 @@
 </script>
 
 <svelte:head>
-	<title>Settings - Alexandria</title>
+	<title>Settings - EpubGraph</title>
 </svelte:head>
 
 <div class="flex-1 overflow-auto p-6">
@@ -352,7 +352,7 @@
 			</div>
 			<div>
 				<h1 class="text-2xl font-semibold">Settings</h1>
-				<p class="text-muted">Configure Alexandria preferences</p>
+				<p class="text-muted">Configure EpubGraph preferences</p>
 			</div>
 		</div>
 
