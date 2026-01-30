@@ -69,14 +69,14 @@ I didn’t build this to manage books I built it because I had too many. Calibre
 <td><img src="screenshots/2.png" alt="Graph View" width="400"/></td>
 </tr>
 <tr>
+<td align="center"><em>Up Next - 3D Bookshelf</em></td>
 <td align="center"><em>Library Browser</em></td>
-<td align="center"><em>Book Graph</em></td>
 </tr>
 <tr>
 <td colspan="2"><img src="screenshots/3.png" alt="Up Next 3D Bookshelf" width="600"/></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><em>Up Next - 3D Bookshelf</em></td>
+<td colspan="2" align="center"><em>Book Graph</em></td>
 </tr>
 </table>
 </div>
