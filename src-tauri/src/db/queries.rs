@@ -86,93 +86,136 @@ impl Database {
     // ============================================
     
     /// Query books with filtering and pagination
+    /// When searching, uses FTS5 bm25() ranking with column weights:
+    /// title=10, author=5, series=3, description=1
     pub fn query_books(&self, query: &BookQuery) -> AppResult<PagedResult<Book>> {
         self.with_conn(|conn| {
-            let mut sql = String::from(
-                "SELECT b.*, r.rating, r.read_status 
-                 FROM books b 
-                 LEFT JOIN ratings r ON b.id = r.book_id"
-            );
-            
             let mut conditions = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-            
-            // FTS search
-            if let Some(ref search) = query.search {
-                if !search.is_empty() {
-                    conditions.push("b.id IN (SELECT rowid FROM books_fts WHERE books_fts MATCH ?)");
-                    params_vec.push(Box::new(search.clone()));
-                }
-            }
-            
+            let mut is_search = false;
+
+            // Check if we have a search query
+            let search_term = query.search.as_ref().filter(|s| !s.is_empty());
+
+            // Build base SQL - different structure when searching (JOIN with FTS for ranking)
+            let base_sql = if let Some(search) = search_term {
+                is_search = true;
+                // Escape quotes in search term and wrap for phrase matching with prefix
+                let escaped = search.replace("\"", "\"\"");
+                params_vec.push(Box::new(format!("\"{}\"*", escaped)));
+
+                // JOIN with FTS for ranking using bm25()
+                // Column order in FTS: title, author, series, description
+                // Weights: title=10, author=5, series=3, description=1
+                // bm25() returns negative values where lower = better match
+                String::from(
+                    "SELECT b.id, b.path, b.cover_path, b.file_size, b.file_hash,
+                            b.title, b.sort_title, b.author, b.author_sort,
+                            b.series, b.series_index, b.description, b.language,
+                            b.publisher, b.publish_date, b.isbn, b.calibre_id,
+                            b.source, b.date_added, b.date_modified, b.date_indexed,
+                            b.embedding_status, b.embedding_model, r.rating, r.read_status,
+                            bm25(books_fts, 10.0, 5.0, 3.0, 1.0) as rank
+                     FROM books b
+                     LEFT JOIN ratings r ON b.id = r.book_id
+                     INNER JOIN books_fts ON b.id = books_fts.rowid
+                     WHERE books_fts MATCH ?"
+                )
+            } else {
+                String::from(
+                    "SELECT b.id, b.path, b.cover_path, b.file_size, b.file_hash,
+                            b.title, b.sort_title, b.author, b.author_sort,
+                            b.series, b.series_index, b.description, b.language,
+                            b.publisher, b.publish_date, b.isbn, b.calibre_id,
+                            b.source, b.date_added, b.date_modified, b.date_indexed,
+                            b.embedding_status, b.embedding_model, r.rating, r.read_status
+                     FROM books b
+                     LEFT JOIN ratings r ON b.id = r.book_id"
+                )
+            };
+
+            let mut sql = base_sql;
+
             // Author filter
             if let Some(ref author) = query.author {
                 conditions.push("b.author = ?");
                 params_vec.push(Box::new(author.clone()));
             }
-            
+
             // Series filter
             if let Some(ref series) = query.series {
                 conditions.push("b.series = ?");
                 params_vec.push(Box::new(series.clone()));
             }
-            
+
             // Read status filter
             if let Some(ref status) = query.read_status {
                 conditions.push("r.read_status = ?");
                 params_vec.push(Box::new(status.clone()));
             }
-            
+
             // Min rating filter
             if let Some(min_rating) = query.min_rating {
                 conditions.push("r.rating >= ?");
                 params_vec.push(Box::new(min_rating));
             }
-            
+
             // Embedding status filter
             if let Some(ref status) = query.embedding_status {
                 conditions.push("b.embedding_status = ?");
                 params_vec.push(Box::new(status.clone()));
             }
-            
-            // Build WHERE clause
+
+            // Build WHERE/AND clause for additional conditions
             if !conditions.is_empty() {
-                sql.push_str(" WHERE ");
+                // If searching, we already have WHERE from the FTS MATCH
+                sql.push_str(if is_search { " AND " } else { " WHERE " });
                 sql.push_str(&conditions.join(" AND "));
             }
-            
-            // Count total
-            let count_sql = format!("SELECT COUNT(*) FROM ({}) AS subq", sql);
+
+            // Count total (need to remove rank column for count query when searching)
+            let count_sql = if is_search {
+                format!("SELECT COUNT(*) FROM ({}) AS subq", sql.replace(", bm25(books_fts, 10.0, 5.0, 3.0, 1.0) as rank", ""))
+            } else {
+                format!("SELECT COUNT(*) FROM ({}) AS subq", sql)
+            };
             let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
             let total: i64 = conn.query_row(&count_sql, params_refs.as_slice(), |row| row.get(0))?;
-            
-            // Sorting
-            let sort_by = query.sort_by.as_deref().unwrap_or("date_added");
-            let sort_order = query.sort_order.as_deref().unwrap_or("desc");
-            let sort_column = match sort_by {
-                "title" => "b.sort_title",
-                "author" => "b.author_sort",
-                "dateAdded" | "date_added" => "b.date_added",
-                "rating" => "r.rating",
-                "series" => "b.series, b.series_index",
-                _ => "b.date_added",
-            };
-            sql.push_str(&format!(" ORDER BY {} {}", sort_column, sort_order.to_uppercase()));
-            
+
+            // Sorting - use rank for search queries, otherwise use user's sort preference
+            if is_search {
+                // bm25 returns negative values, lower = better match, so ORDER BY rank ASC
+                sql.push_str(" ORDER BY rank");
+            } else {
+                let sort_by = query.sort_by.as_deref().unwrap_or("date_added");
+                let sort_order = query.sort_order.as_deref().unwrap_or("desc");
+                let sort_column = match sort_by {
+                    "title" => "b.sort_title",
+                    "author" => "b.author_sort",
+                    "dateAdded" | "date_added" => "b.date_added",
+                    "rating" => "r.rating",
+                    "series" => "b.series, b.series_index",
+                    _ => "b.date_added",
+                };
+                sql.push_str(&format!(" ORDER BY {} {}", sort_column, sort_order.to_uppercase()));
+            }
+
             // Pagination
             let limit = query.limit.unwrap_or(50).min(1000);
             let offset = query.offset.unwrap_or(0);
             sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
-            
+
             // Execute query
             let mut stmt = conn.prepare(&sql)?;
             let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
-            
+
+            // Use row_to_book which reads columns by index - we've explicitly listed
+            // the columns in the same order for both search and non-search queries
             let books = stmt.query_map(params_refs.as_slice(), row_to_book)?
                 .collect::<Result<Vec<_>, _>>()?;
-            
+
             let has_more = (offset + limit) < total;
-            
+
             Ok(PagedResult { items: books, total, has_more })
         })
     }

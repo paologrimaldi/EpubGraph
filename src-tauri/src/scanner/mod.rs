@@ -79,11 +79,18 @@ impl Scanner {
 
         let mut books = Vec::new();
 
+        // Canonicalize root path for comparison (handles symlinks like /var -> /private/var)
+        let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+
         for entry in WalkDir::new(root)
             .max_depth(self.config.max_depth)
             .follow_links(self.config.follow_links)
             .into_iter()
-            .filter_entry(|e| !is_hidden(e))
+            .filter_entry(|e| {
+                // Don't filter out the root directory itself
+                let is_root = e.path().canonicalize().unwrap_or_else(|_| e.path().to_path_buf()) == canonical_root;
+                is_root || !is_hidden(e)
+            })
             .filter_map(|e| e.ok())
             .filter(|e| self.is_epub(e))
         {

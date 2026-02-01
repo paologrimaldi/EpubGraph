@@ -4,16 +4,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EpubGraph User Manual</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --primary: #6366f1;
+            --primary-light: #818cf8;
             --primary-dark: #4f46e5;
-            --bg: #f8fafc;
-            --bg-dark: #0f172a;
-            --text: #1e293b;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --card-bg: #ffffff;
+            --primary-subtle: rgba(99, 102, 241, 0.1);
+            --accent: #f59e0b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --bg: #fafafa;
+            --bg-elevated: #ffffff;
+            --text: #18181b;
+            --text-secondary: #52525b;
+            --text-muted: #a1a1aa;
+            --border: #e4e4e7;
+            --border-subtle: #f4f4f5;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #09090b;
+                --bg-elevated: #18181b;
+                --text: #fafafa;
+                --text-secondary: #a1a1aa;
+                --text-muted: #71717a;
+                --border: #27272a;
+                --border-subtle: #1f1f22;
+                --primary-subtle: rgba(99, 102, 241, 0.15);
+                --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+                --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+                --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+            }
         }
 
         * {
@@ -22,536 +55,1239 @@
             box-sizing: border-box;
         }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
             line-height: 1.7;
+            font-size: 15px;
         }
 
-        .container {
-            max-width: 900px;
+        /* Layout */
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-elevated);
+            border-right: 1px solid var(--border);
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .logo-icon svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .logo-text {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--text);
+        }
+
+        .logo-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 1rem 0;
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            padding: 0 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            padding: 0.5rem 0.75rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 0.75rem;
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.15s ease;
+        }
+
+        .nav-link:hover {
+            background: var(--primary-subtle);
+            color: var(--primary);
+        }
+
+        .nav-link.active {
+            background: var(--primary-subtle);
+            color: var(--primary);
+        }
+
+        .nav-link svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .nav-badge {
+            margin-left: auto;
+            background: var(--primary);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+        }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            margin-left: 280px;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 4rem 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 100%;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='rgba(255,255,255,0.05)'/%3E%3C/svg%3E") repeat;
+            opacity: 0.5;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .hero p {
+            font-size: 1.125rem;
+            opacity: 0.9;
+        }
+
+        .content {
+            max-width: 800px;
             margin: 0 auto;
             padding: 2rem;
         }
 
-        header {
-            text-align: center;
-            padding: 3rem 0;
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            color: white;
-            margin-bottom: 2rem;
-        }
-
-        header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 0.5rem;
-        }
-
-        header p {
-            opacity: 0.9;
-            font-size: 1.1rem;
-        }
-
-        nav {
-            background: var(--card-bg);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-
-        nav h2 {
-            font-size: 1rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 1rem;
-        }
-
-        nav ul {
-            list-style: none;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 0.5rem;
-        }
-
-        nav a {
-            color: var(--primary);
-            text-decoration: none;
-            padding: 0.5rem;
-            border-radius: 6px;
-            display: block;
-            transition: background 0.2s;
-        }
-
-        nav a:hover {
-            background: var(--bg);
-        }
-
+        /* Sections */
         section {
-            background: var(--card-bg);
-            border-radius: 12px;
+            padding: 2rem 0;
+        }
+
+        section:first-of-type {
+            padding-top: 0;
+        }
+
+        .section-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
             padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow-sm);
         }
 
         h2 {
-            color: var(--primary);
             font-size: 1.5rem;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid var(--border);
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        h2 .section-icon {
+            width: 32px;
+            height: 32px;
+            background: var(--primary-subtle);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+        }
+
+        h2 .section-icon svg {
+            width: 18px;
+            height: 18px;
         }
 
         h3 {
-            font-size: 1.2rem;
-            margin: 1.5rem 0 0.75rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 1.75rem 0 0.75rem;
             color: var(--text);
+        }
+
+        h3:first-child {
+            margin-top: 0;
         }
 
         p {
             margin-bottom: 1rem;
+            color: var(--text-secondary);
         }
 
         ul, ol {
-            margin-left: 1.5rem;
+            margin-left: 1.25rem;
             margin-bottom: 1rem;
+            color: var(--text-secondary);
         }
 
         li {
             margin-bottom: 0.5rem;
         }
 
+        li strong {
+            color: var(--text);
+        }
+
+        /* Code */
         code {
-            background: var(--bg);
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            font-family: 'Fira Code', 'Consolas', monospace;
-            font-size: 0.9em;
+            background: var(--primary-subtle);
+            color: var(--primary);
+            padding: 0.15rem 0.4rem;
+            border-radius: var(--radius-sm);
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85em;
         }
 
         pre {
-            background: var(--bg-dark);
-            color: #e2e8f0;
-            padding: 1rem;
-            border-radius: 8px;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
             overflow-x: auto;
             margin-bottom: 1rem;
+            font-size: 0.875rem;
+            line-height: 1.6;
         }
 
         pre code {
             background: none;
-            padding: 0;
             color: inherit;
+            padding: 0;
         }
 
-        .tip {
-            background: #f0fdf4;
-            border-left: 4px solid #22c55e;
+        /* Callouts */
+        .callout {
+            display: flex;
+            gap: 0.75rem;
             padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 0 8px 8px 0;
+            border-radius: var(--radius-md);
+            margin: 1.25rem 0;
         }
 
-        .tip strong {
-            color: #15803d;
+        .callout-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
         }
 
-        .warning {
-            background: #fefce8;
-            border-left: 4px solid #eab308;
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 0 8px 8px 0;
+        .callout-content {
+            flex: 1;
         }
 
-        .warning strong {
-            color: #a16207;
+        .callout-title {
+            font-weight: 600;
+            font-size: 0.875rem;
+            margin-bottom: 0.25rem;
         }
 
+        .callout-text {
+            font-size: 0.875rem;
+            margin: 0;
+        }
+
+        .callout-tip {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .callout-tip .callout-icon,
+        .callout-tip .callout-title {
+            color: var(--success);
+        }
+
+        .callout-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        .callout-warning .callout-icon,
+        .callout-warning .callout-title {
+            color: var(--warning);
+        }
+
+        .callout-info {
+            background: var(--primary-subtle);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .callout-info .callout-icon,
+        .callout-info .callout-title {
+            color: var(--primary);
+        }
+
+        /* Feature Grid */
         .feature-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             gap: 1rem;
-            margin: 1rem 0;
+            margin: 1.25rem 0;
         }
 
         .feature-card {
             background: var(--bg);
-            padding: 1rem;
-            border-radius: 8px;
+            border: 1px solid var(--border-subtle);
+            padding: 1.25rem;
+            border-radius: var(--radius-md);
+            transition: all 0.2s ease;
+        }
+
+        .feature-card:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-md);
         }
 
         .feature-card h4 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .feature-card h4 svg {
+            width: 16px;
+            height: 16px;
             color: var(--primary);
+        }
+
+        .feature-card p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        /* Steps */
+        .steps {
+            counter-reset: step;
+            margin: 1rem 0;
+        }
+
+        .step {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .step:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .step-number {
+            counter-increment: step;
+            width: 28px;
+            height: 28px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .step-number::before {
+            content: counter(step);
+        }
+
+        .step-content {
+            flex: 1;
+            padding-top: 0.125rem;
+        }
+
+        .step-content p {
+            margin: 0;
+        }
+
+        /* Keyboard shortcuts */
+        kbd {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 0.15rem 0.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            font-family: inherit;
+            box-shadow: 0 1px 0 var(--border);
+        }
+
+        /* Status badges */
+        .status-list {
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: var(--radius-sm);
             margin-bottom: 0.5rem;
         }
 
-        .shortcut {
-            display: inline-flex;
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-dot.unread { background: var(--text-muted); }
+        .status-dot.want { background: var(--warning); }
+        .status-dot.reading { background: var(--primary); }
+        .status-dot.finished { background: var(--success); }
+        .status-dot.abandoned { background: var(--error); }
+
+        /* Edge colors */
+        .edge-list {
+            list-style: none;
+            margin-left: 0;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+        }
+
+        .edge-item {
+            display: flex;
             align-items: center;
-            gap: 0.25rem;
-        }
-
-        .shortcut kbd {
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
             background: var(--bg);
-            border: 1px solid var(--border);
-            padding: 0.2rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-family: inherit;
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
         }
 
+        .edge-color {
+            width: 16px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        /* Footer */
         footer {
-            text-align: center;
+            border-top: 1px solid var(--border);
             padding: 2rem;
+            text-align: center;
             color: var(--text-muted);
-            font-size: 0.9rem;
+            font-size: 0.875rem;
         }
 
-        @media (max-width: 640px) {
-            .container {
-                padding: 1rem;
+        footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Mobile */
+        .mobile-header {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border);
+            z-index: 200;
+            padding: 0 1rem;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .menu-toggle {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text);
+        }
+
+        .menu-toggle svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 99;
+        }
+
+        @media (max-width: 900px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
             }
 
-            header {
-                padding: 2rem 1rem;
+            .sidebar.open {
+                transform: translateX(0);
             }
 
-            header h1 {
+            .sidebar-overlay.open {
+                display: block;
+            }
+
+            .mobile-header {
+                display: flex;
+            }
+
+            .main {
+                margin-left: 0;
+                padding-top: 60px;
+            }
+
+            .hero {
+                padding: 2.5rem 1.5rem;
+            }
+
+            .hero h1 {
                 font-size: 1.75rem;
             }
 
-            section {
+            .content {
                 padding: 1.5rem;
+            }
+
+            .section-card {
+                padding: 1.5rem;
+            }
+
+            .edge-list {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
-    <header>
-        <div class="container">
-            <h1>EpubGraph User Manual</h1>
-            <p>AI-Powered Ebook Library Manager</p>
+    <div class="layout">
+        <!-- Mobile Header -->
+        <div class="mobile-header">
+            <button class="menu-toggle" onclick="toggleSidebar()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 12h18M3 6h18M3 18h18"/>
+                </svg>
+            </button>
+            <span style="font-weight: 600;">EpubGraph Manual</span>
         </div>
-    </header>
 
-    <div class="container">
-        <nav>
-            <h2>Table of Contents</h2>
-            <ul>
-                <li><a href="#getting-started">Getting Started</a></li>
-                <li><a href="#managing-libraries">Managing Libraries</a></li>
-                <li><a href="#browsing-books">Browsing Books</a></li>
-                <li><a href="#recommendations">AI Recommendations</a></li>
-                <li><a href="#graph-view">Book Graph</a></li>
-                <li><a href="#ratings">Ratings & Status</a></li>
-                <li><a href="#calibre">Calibre Import</a></li>
-                <li><a href="#backup">Backup & Export</a></li>
-                <li><a href="#settings">Settings</a></li>
-                <li><a href="#troubleshooting">Troubleshooting</a></li>
-            </ul>
-        </nav>
+        <!-- Sidebar Overlay -->
+        <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-        <section id="getting-started">
-            <h2>Getting Started</h2>
-
-            <h3>System Requirements</h3>
-            <ul>
-                <li><strong>Operating System:</strong> macOS 10.15+, Windows 10+, or Linux</li>
-                <li><strong>Memory:</strong> 4GB RAM minimum, 8GB recommended</li>
-                <li><strong>Storage:</strong> 100MB for the application (books are stored externally)</li>
-                <li><strong>Optional:</strong> Ollama for AI-powered recommendations</li>
-            </ul>
-
-            <h3>First Launch</h3>
-            <p>When you first launch EpubGraph, you'll see an empty library. To get started:</p>
-            <ol>
-                <li>Click the <strong>+</strong> button next to "Libraries" in the sidebar</li>
-                <li>Select a folder containing your EPUB files</li>
-                <li>EpubGraph will scan the folder and import all found books</li>
-            </ol>
-
-            <div class="tip">
-                <strong>Tip:</strong> EpubGraph doesn't copy your books - it simply creates pointers to their locations. Your files stay where they are!
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="logo-text">EpubGraph</div>
+                        <div class="logo-subtitle">User Manual</div>
+                    </div>
+                </div>
             </div>
-        </section>
 
-        <section id="managing-libraries">
-            <h2>Managing Libraries</h2>
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-title">Getting Started</div>
+                    <a href="#getting-started" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Quick Start
+                    </a>
+                    <a href="#managing-libraries" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                        Managing Libraries
+                    </a>
+                </div>
 
-            <h3>Adding a Library</h3>
-            <p>You can add multiple library folders to organize your books:</p>
-            <ol>
-                <li>Click the <strong>+</strong> button in the sidebar</li>
-                <li>Navigate to your book folder</li>
-                <li>Click "Select" to add it</li>
-            </ol>
+                <div class="nav-section">
+                    <div class="nav-section-title">Features</div>
+                    <a href="#browsing-books" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                        Browsing Books
+                    </a>
+                    <a href="#up-next" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        Up Next
+                        <span class="nav-badge">New</span>
+                    </a>
+                    <a href="#recommendations" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        AI Recommendations
+                    </a>
+                    <a href="#graph-view" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                        Book Graph
+                    </a>
+                    <a href="#ratings" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                        Ratings & Status
+                    </a>
+                </div>
 
-            <h3>Scanning for New Books</h3>
-            <p>Click the refresh icon next to a library to scan for new or changed books. EpubGraph will:</p>
-            <ul>
-                <li>Find new EPUB files added since the last scan</li>
-                <li>Update metadata for modified files</li>
-                <li>Preserve your ratings and read status</li>
-            </ul>
+                <div class="nav-section">
+                    <div class="nav-section-title">Advanced</div>
+                    <a href="#calibre" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                        Calibre Import
+                    </a>
+                    <a href="#backup" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Backup & Export
+                    </a>
+                    <a href="#settings" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        Settings
+                    </a>
+                    <a href="#troubleshooting" class="nav-link">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Troubleshooting
+                    </a>
+                </div>
+            </nav>
+        </aside>
 
-            <h3>Calibre Libraries</h3>
-            <p>EpubGraph automatically detects Calibre libraries and can import:</p>
-            <ul>
-                <li>All book metadata</li>
-                <li>Your ratings (converted from 0-10 to 1-5 scale)</li>
-                <li>Tags and series information</li>
-                <li>Cover images</li>
-            </ul>
-        </section>
+        <!-- Main Content -->
+        <main class="main">
+            <div class="hero">
+                <div class="hero-content">
+                    <h1>EpubGraph User Manual</h1>
+                    <p>Your guide to the AI-powered ebook library manager</p>
+                </div>
+            </div>
 
-        <section id="browsing-books">
-            <h2>Browsing Books</h2>
+            <div class="content">
+                <!-- Getting Started -->
+                <section id="getting-started">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            </span>
+                            Getting Started
+                        </h2>
 
-            <h3>Library View</h3>
-            <p>The main view shows all your books in a responsive grid. Each book card displays:</p>
-            <ul>
-                <li>Cover image (extracted from EPUB or folder)</li>
-                <li>Title and author</li>
-                <li>Your rating (if set)</li>
-                <li>Read status badge</li>
-            </ul>
+                        <h3>System Requirements</h3>
+                        <ul>
+                            <li><strong>Operating System:</strong> macOS 10.15+, Windows 10+, or Linux</li>
+                            <li><strong>Memory:</strong> 4GB RAM minimum, 8GB recommended</li>
+                            <li><strong>Storage:</strong> 100MB for the application</li>
+                            <li><strong>Optional:</strong> Ollama for AI-powered recommendations</li>
+                        </ul>
 
-            <h3>Searching</h3>
-            <p>Use the search bar at the top to find books. EpubGraph uses full-text search, so you can search by:</p>
-            <ul>
-                <li>Book title</li>
-                <li>Author name</li>
-                <li>Series name</li>
-                <li>Description content</li>
-            </ul>
+                        <h3>First Launch</h3>
+                        <p>When you first launch EpubGraph, you'll see an empty library. Follow these steps to get started:</p>
 
-            <h3>Sorting & Filtering</h3>
-            <p>Sort your library by:</p>
-            <ul>
-                <li><strong>Date Added:</strong> Most recently added first</li>
-                <li><strong>Title:</strong> Alphabetically by title</li>
-                <li><strong>Author:</strong> Alphabetically by author</li>
-                <li><strong>Rating:</strong> Highest rated first</li>
-            </ul>
+                        <div class="steps">
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content">
+                                    <p>Click the <strong>+</strong> button next to "Libraries" in the sidebar</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content">
+                                    <p>Select a folder containing your EPUB files</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content">
+                                    <p>EpubGraph will scan the folder and import all found books</p>
+                                </div>
+                            </div>
+                        </div>
 
-            <h3>Book Details</h3>
-            <p>Click any book to view its details panel, which shows:</p>
-            <ul>
-                <li>Full cover image</li>
-                <li>Complete metadata (author, series, publisher, etc.)</li>
-                <li>Description/synopsis</li>
-                <li>AI-generated recommendations</li>
-                <li>Rating and read status controls</li>
-            </ul>
-        </section>
+                        <div class="callout callout-tip">
+                            <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                            <div class="callout-content">
+                                <div class="callout-title">Non-Destructive Storage</div>
+                                <p class="callout-text">EpubGraph doesn't copy your books - it creates pointers to their locations. Your files stay exactly where they are!</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
-        <section id="recommendations">
-            <h2>AI Recommendations</h2>
+                <!-- Managing Libraries -->
+                <section id="managing-libraries">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            </span>
+                            Managing Libraries
+                        </h2>
 
-            <h3>How It Works</h3>
-            <p>EpubGraph uses a hybrid recommendation system that combines:</p>
-            <ul>
-                <li><strong>Content Similarity:</strong> AI analyzes book descriptions to find similar content</li>
-                <li><strong>Author Relationships:</strong> Books by the same author</li>
-                <li><strong>Series Connections:</strong> Related books in the same series</li>
-                <li><strong>Your Preferences:</strong> Based on books you've rated highly</li>
-            </ul>
+                        <h3>Adding a Library</h3>
+                        <p>You can add multiple library folders to organize your books. Click the <strong>+</strong> button in the sidebar, navigate to your book folder, and select it.</p>
 
-            <h3>Setting Up Ollama</h3>
-            <p>For AI-powered recommendations, install Ollama:</p>
-            <pre><code># macOS
+                        <h3>Scanning for New Books</h3>
+                        <p>Click the refresh icon next to a library to scan for new or changed books. EpubGraph will:</p>
+                        <ul>
+                            <li>Find new EPUB files added since the last scan</li>
+                            <li>Update metadata for modified files</li>
+                            <li>Preserve your ratings and read status</li>
+                        </ul>
+
+                        <h3>Calibre Libraries</h3>
+                        <p>EpubGraph automatically detects Calibre libraries and imports all metadata, ratings, tags, series information, and cover images.</p>
+                    </div>
+                </section>
+
+                <!-- Browsing Books -->
+                <section id="browsing-books">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                            </span>
+                            Browsing Books
+                        </h2>
+
+                        <h3>Library View</h3>
+                        <p>The main view shows all your books in a responsive grid. Each book card displays the cover image, title, author, your rating, and read status badge.</p>
+
+                        <h3>Searching</h3>
+                        <p>Use the search bar (<kbd>Cmd</kbd> + <kbd>K</kbd>) to find books. EpubGraph uses full-text search across titles, authors, series names, and descriptions.</p>
+
+                        <h3>Right-Click Menu</h3>
+                        <p>Right-click any book to access quick actions:</p>
+                        <ul>
+                            <li><strong>Add to Up Next:</strong> Add to your reading queue</li>
+                            <li><strong>Open Book:</strong> Open the EPUB file in your reader</li>
+                            <li><strong>View Details:</strong> Open the book details sidebar</li>
+                        </ul>
+
+                        <h3>Book Details</h3>
+                        <p>Click any book to view its details panel with full metadata, description, AI-generated recommendations, and controls for rating and read status.</p>
+                    </div>
+                </section>
+
+                <!-- Up Next -->
+                <section id="up-next">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                            </span>
+                            Up Next - 3D Reading Queue
+                        </h2>
+
+                        <p>Up Next is your personalized reading queue displayed in an interactive 3D bookshelf. Browse your books on a beautiful virtual shelf, with realistic lighting and smooth animations.</p>
+
+                        <div class="feature-grid">
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                                    3D Bookshelf
+                                </h4>
+                                <p>Browse your queue on a realistic virtual bookshelf with spine and cover textures</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                    Smart Queue
+                                </h4>
+                                <p>Automatically includes books marked as "Want to Read"</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    Manual Curation
+                                </h4>
+                                <p>Add any book to Up Next from the library view</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/><path d="M1 12h6m6 0h10"/></svg>
+                                    Interactive
+                                </h4>
+                                <p>Click books to view details, hover to preview covers</p>
+                            </div>
+                        </div>
+
+                        <h3>Adding Books to Up Next</h3>
+                        <p>There are three ways to add books to your Up Next queue:</p>
+
+                        <div class="steps">
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content">
+                                    <p><strong>From Book Details:</strong> Click any book in the library, then click "Add to Up Next" in the details sidebar</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content">
+                                    <p><strong>Right-Click Menu:</strong> Right-click any book thumbnail and select "Add to Up Next"</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content">
+                                    <p><strong>Automatic:</strong> Set a book's status to "Want to Read" - it will automatically appear in Up Next</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3>Using the 3D Bookshelf</h3>
+                        <ul>
+                            <li><strong>Navigate:</strong> Scroll horizontally to browse books, use arrow keys for keyboard navigation</li>
+                            <li><strong>Hover:</strong> Hover over a book to see it pull forward slightly and preview its cover</li>
+                            <li><strong>Select:</strong> Click a book to view its full details in the sidebar</li>
+                            <li><strong>Remove:</strong> In the details sidebar, click "Remove from Up Next" to remove the book</li>
+                        </ul>
+
+                        <div class="callout callout-info">
+                            <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                            <div class="callout-content">
+                                <div class="callout-title">Smart Status Handling</div>
+                                <p class="callout-text">When you change a book's status (e.g., mark as "Reading" or "Finished"), the book is automatically removed from Up Next since you've moved past the "want to read" stage.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- AI Recommendations -->
+                <section id="recommendations">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            </span>
+                            AI Recommendations
+                        </h2>
+
+                        <h3>How It Works</h3>
+                        <p>EpubGraph uses a hybrid recommendation system combining content similarity, author relationships, series connections, and your personal preferences.</p>
+
+                        <div class="feature-grid">
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                    Similar Content
+                                </h4>
+                                <p>AI analyzes descriptions to find similar themes and writing styles</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                                    Same Author
+                                </h4>
+                                <p>Discover more works by authors you enjoy</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                                    Series
+                                </h4>
+                                <p>Find the next books in series you're reading</p>
+                            </div>
+                            <div class="feature-card">
+                                <h4>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                                    Personalized
+                                </h4>
+                                <p>Based on your highly-rated books</p>
+                            </div>
+                        </div>
+
+                        <h3>Setting Up Ollama</h3>
+                        <p>For AI-powered recommendations, install Ollama:</p>
+                        <pre><code># macOS
 brew install ollama
 
-# Then pull the embedding model
+# Start Ollama and pull the model
+ollama serve
 ollama pull nomic-embed-text</code></pre>
 
-            <p>The sidebar shows Ollama's connection status. When connected, EpubGraph will automatically generate embeddings for your books in the background.</p>
+                        <p>The sidebar shows Ollama's connection status. When connected, EpubGraph automatically generates embeddings in the background.</p>
+                    </div>
+                </section>
 
-            <h3>Recommendation Types</h3>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <h4>Similar Content</h4>
-                    <p>Books with similar themes, topics, or writing style</p>
-                </div>
-                <div class="feature-card">
-                    <h4>Same Author</h4>
-                    <p>Other works by authors you enjoy</p>
-                </div>
-                <div class="feature-card">
-                    <h4>Series</h4>
-                    <p>Next books in series you're reading</p>
-                </div>
-                <div class="feature-card">
-                    <h4>Personalized</h4>
-                    <p>Based on your highly-rated books</p>
-                </div>
+                <!-- Book Graph -->
+                <section id="graph-view">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                            </span>
+                            Book Graph
+                        </h2>
+
+                        <p>The Graph View visualizes relationships between your books as an interactive network.</p>
+
+                        <h3>Using the Graph</h3>
+                        <div class="steps">
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content"><p>Click "Book Graph" in the sidebar</p></div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content"><p>Select a book to center the graph on</p></div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content"><p>Explore connections by hovering over nodes</p></div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number"></div>
+                                <div class="step-content"><p>Click a node to view that book's details</p></div>
+                            </div>
+                        </div>
+
+                        <h3>Edge Colors</h3>
+                        <ul class="edge-list">
+                            <li class="edge-item">
+                                <span class="edge-color" style="background: #3b82f6;"></span>
+                                <strong>Blue:</strong> Similar content
+                            </li>
+                            <li class="edge-item">
+                                <span class="edge-color" style="background: #10b981;"></span>
+                                <strong>Green:</strong> Same author
+                            </li>
+                            <li class="edge-item">
+                                <span class="edge-color" style="background: #f59e0b;"></span>
+                                <strong>Amber:</strong> Same series
+                            </li>
+                            <li class="edge-item">
+                                <span class="edge-color" style="background: #8b5cf6;"></span>
+                                <strong>Purple:</strong> Shared tags
+                            </li>
+                        </ul>
+
+                        <h3>Controls</h3>
+                        <ul>
+                            <li><strong>Zoom:</strong> Use + and - buttons or scroll wheel</li>
+                            <li><strong>Pan:</strong> Click and drag the background</li>
+                            <li><strong>Reset:</strong> Click the reset button to center the view</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Ratings & Status -->
+                <section id="ratings">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                            </span>
+                            Ratings & Read Status
+                        </h2>
+
+                        <h3>Rating Books</h3>
+                        <p>In the book details panel, click stars to rate a book from 1 to 5. Your ratings help improve personalized recommendations.</p>
+
+                        <h3>Read Status</h3>
+                        <p>Track your reading progress with these status options:</p>
+
+                        <ul class="status-list">
+                            <li class="status-item">
+                                <span class="status-dot unread"></span>
+                                <div>
+                                    <strong>Unread</strong>
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;"> - Haven't started yet</span>
+                                </div>
+                            </li>
+                            <li class="status-item">
+                                <span class="status-dot want"></span>
+                                <div>
+                                    <strong>Want to Read</strong>
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;"> - On your reading list (appears in Up Next)</span>
+                                </div>
+                            </li>
+                            <li class="status-item">
+                                <span class="status-dot reading"></span>
+                                <div>
+                                    <strong>Reading</strong>
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;"> - Currently in progress</span>
+                                </div>
+                            </li>
+                            <li class="status-item">
+                                <span class="status-dot finished"></span>
+                                <div>
+                                    <strong>Finished</strong>
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;"> - Completed reading</span>
+                                </div>
+                            </li>
+                            <li class="status-item">
+                                <span class="status-dot abandoned"></span>
+                                <div>
+                                    <strong>Abandoned</strong>
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;"> - Stopped reading</span>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Calibre Import -->
+                <section id="calibre">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                            </span>
+                            Calibre Import
+                        </h2>
+
+                        <p>EpubGraph seamlessly imports from Calibre libraries. When you add a folder containing a <code>metadata.db</code> file, EpubGraph recognizes it as a Calibre library and imports all book metadata, ratings (converted to 1-5 scale), tags, and cover images.</p>
+
+                        <div class="callout callout-warning">
+                            <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            <div class="callout-content">
+                                <div class="callout-title">Non-Destructive</div>
+                                <p class="callout-text">EpubGraph reads from Calibre's database but never modifies it. Your Calibre library remains unchanged.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Backup & Export -->
+                <section id="backup">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            </span>
+                            Backup & Export
+                        </h2>
+
+                        <h3>Exporting Your Library</h3>
+                        <p>Go to Settings and click "Export Library" to save your library data (metadata, ratings, read status, file paths) to a JSON file.</p>
+
+                        <h3>Importing</h3>
+                        <p>Go to Settings, click "Import Library", select your export file, and choose a merge mode (replace, skip, or merge).</p>
+
+                        <h3>Database Backup</h3>
+                        <p>For a complete backup including all data, go to Settings and click "Create Backup" to save the <code>.db</code> file.</p>
+                    </div>
+                </section>
+
+                <!-- Settings -->
+                <section id="settings">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                            </span>
+                            Settings
+                        </h2>
+
+                        <h3>Ollama Configuration</h3>
+                        <ul>
+                            <li><strong>Endpoint:</strong> Ollama server URL (default: http://localhost:11434)</li>
+                            <li><strong>Model:</strong> Embedding model to use (default: nomic-embed-text)</li>
+                        </ul>
+
+                        <h3>Library Settings</h3>
+                        <ul>
+                            <li><strong>Auto-scan:</strong> Automatically scan for new books periodically</li>
+                            <li><strong>Scan Interval:</strong> How often to check for new books</li>
+                        </ul>
+
+                        <h3>Recommendation Settings</h3>
+                        <ul>
+                            <li><strong>Max Recommendations:</strong> Number of recommendations to show</li>
+                            <li><strong>Embedding Batch Size:</strong> Books to process at once</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <!-- Troubleshooting -->
+                <section id="troubleshooting">
+                    <div class="section-card">
+                        <h2>
+                            <span class="section-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </span>
+                            Troubleshooting
+                        </h2>
+
+                        <h3>Books Not Appearing</h3>
+                        <ul>
+                            <li>Ensure files have the <code>.epub</code> extension</li>
+                            <li>Try re-scanning the library</li>
+                            <li>Check that the folder path is accessible</li>
+                        </ul>
+
+                        <h3>Ollama Not Connecting</h3>
+                        <ul>
+                            <li>Verify Ollama is running: <code>ollama serve</code></li>
+                            <li>Check the endpoint in Settings</li>
+                            <li>Ensure the model is pulled: <code>ollama pull nomic-embed-text</code></li>
+                        </ul>
+
+                        <h3>Slow Performance</h3>
+                        <ul>
+                            <li>Large libraries (100K+ books) may take time to load initially</li>
+                            <li>Embedding generation happens in the background</li>
+                            <li>Graph view with many nodes may be slower</li>
+                        </ul>
+
+                        <h3>3D Bookshelf Issues</h3>
+                        <ul>
+                            <li>Ensure your browser supports WebGL</li>
+                            <li>Try refreshing the page if textures don't load</li>
+                            <li>Reduce the number of books in Up Next if performance is slow</li>
+                        </ul>
+                    </div>
+                </section>
             </div>
-        </section>
 
-        <section id="graph-view">
-            <h2>Book Graph</h2>
-
-            <p>The Graph View visualizes relationships between your books as an interactive network.</p>
-
-            <h3>Using the Graph</h3>
-            <ol>
-                <li>Click "Book Graph" in the sidebar</li>
-                <li>Select a book to center the graph on</li>
-                <li>Explore connections by hovering over nodes</li>
-                <li>Click a node to view that book's details</li>
-            </ol>
-
-            <h3>Edge Colors</h3>
-            <ul>
-                <li><strong style="color: #3b82f6;">Blue:</strong> Similar content</li>
-                <li><strong style="color: #10b981;">Green:</strong> Same author</li>
-                <li><strong style="color: #f59e0b;">Amber:</strong> Same series</li>
-                <li><strong style="color: #8b5cf6;">Purple:</strong> Shared tags</li>
-            </ul>
-
-            <h3>Graph Controls</h3>
-            <ul>
-                <li><strong>Zoom:</strong> Use + and - buttons or scroll wheel</li>
-                <li><strong>Pan:</strong> Click and drag the background</li>
-                <li><strong>Reset:</strong> Click the reset button to center the view</li>
-                <li><strong>Depth:</strong> Adjust how many hops from the center to show</li>
-            </ul>
-        </section>
-
-        <section id="ratings">
-            <h2>Ratings & Read Status</h2>
-
-            <h3>Rating Books</h3>
-            <p>In the book details panel, click stars to rate a book from 1 to 5. Your ratings help improve recommendations.</p>
-
-            <h3>Read Status</h3>
-            <p>Track your reading progress with status options:</p>
-            <ul>
-                <li><strong>Unread:</strong> Haven't started yet</li>
-                <li><strong>Want to Read:</strong> On your reading list</li>
-                <li><strong>Reading:</strong> Currently in progress</li>
-                <li><strong>Finished:</strong> Completed reading</li>
-                <li><strong>Abandoned:</strong> Stopped reading</li>
-            </ul>
-        </section>
-
-        <section id="calibre">
-            <h2>Calibre Import</h2>
-
-            <p>EpubGraph seamlessly imports from Calibre libraries.</p>
-
-            <h3>Automatic Detection</h3>
-            <p>When you add a folder containing a <code>metadata.db</code> file, EpubGraph recognizes it as a Calibre library and imports:</p>
-            <ul>
-                <li>All book metadata (title, author, series, etc.)</li>
-                <li>Your ratings (converted to 1-5 scale)</li>
-                <li>Tags and categories</li>
-                <li>Cover images</li>
-            </ul>
-
-            <div class="warning">
-                <strong>Note:</strong> EpubGraph reads from Calibre's database but doesn't modify it. Your Calibre library remains unchanged.
-            </div>
-        </section>
-
-        <section id="backup">
-            <h2>Backup & Export</h2>
-
-            <h3>Exporting Your Library</h3>
-            <p>Export your library data to a JSON file for backup or transfer:</p>
-            <ol>
-                <li>Go to Settings</li>
-                <li>Click "Export Library"</li>
-                <li>Choose a save location</li>
-            </ol>
-
-            <p>The export includes:</p>
-            <ul>
-                <li>All book metadata</li>
-                <li>Your ratings and read status</li>
-                <li>File paths (for re-importing)</li>
-            </ul>
-
-            <h3>Importing</h3>
-            <p>Import a previously exported library:</p>
-            <ol>
-                <li>Go to Settings</li>
-                <li>Click "Import Library"</li>
-                <li>Select your export file</li>
-                <li>Choose merge mode (replace, skip, or merge)</li>
-            </ol>
-
-            <h3>Database Backup</h3>
-            <p>For a complete backup including all data:</p>
-            <ol>
-                <li>Go to Settings</li>
-                <li>Click "Create Backup"</li>
-                <li>Save the <code>.db</code> file</li>
-            </ol>
-        </section>
-
-        <section id="settings">
-            <h2>Settings</h2>
-
-            <h3>Ollama Configuration</h3>
-            <ul>
-                <li><strong>Endpoint:</strong> Ollama server URL (default: http://localhost:11434)</li>
-                <li><strong>Model:</strong> Embedding model to use (default: nomic-embed-text)</li>
-            </ul>
-
-            <h3>Library Settings</h3>
-            <ul>
-                <li><strong>Auto-scan:</strong> Automatically scan for new books periodically</li>
-                <li><strong>Scan Interval:</strong> How often to check for new books (minutes)</li>
-            </ul>
-
-            <h3>Recommendation Settings</h3>
-            <ul>
-                <li><strong>Max Recommendations:</strong> Number of recommendations to show</li>
-                <li><strong>Embedding Batch Size:</strong> Books to process at once</li>
-            </ul>
-        </section>
-
-        <section id="troubleshooting">
-            <h2>Troubleshooting</h2>
-
-            <h3>Books Not Appearing</h3>
-            <ul>
-                <li>Ensure files have the <code>.epub</code> extension</li>
-                <li>Try re-scanning the library</li>
-                <li>Check that the folder path is accessible</li>
-            </ul>
-
-            <h3>Ollama Not Connecting</h3>
-            <ul>
-                <li>Verify Ollama is running: <code>ollama serve</code></li>
-                <li>Check the endpoint in Settings</li>
-                <li>Ensure the embedding model is pulled: <code>ollama pull nomic-embed-text</code></li>
-            </ul>
-
-            <h3>Slow Performance</h3>
-            <ul>
-                <li>Large libraries (100K+ books) may take time to load initially</li>
-                <li>Embedding generation happens in the background</li>
-                <li>Graph view with many nodes may be slower</li>
-            </ul>
-
-            <h3>Missing Cover Images</h3>
-            <ul>
-                <li>EpubGraph extracts covers from EPUB files</li>
-                <li>Some EPUBs don't include cover images</li>
-                <li>Calibre covers are imported if available</li>
-            </ul>
-        </section>
+            <footer>
+                <p>EpubGraph &copy; 2025. Built with Tauri, Svelte, and Rust.</p>
+                <p>For issues and feature requests, visit our <a href="https://github.com/anthropics/claude-code/issues" target="_blank">GitHub repository</a>.</p>
+            </footer>
+        </main>
     </div>
 
-    <footer>
-        <p>EpubGraph &copy; 2024. Built with Tauri, Svelte, and Rust.</p>
-        <p>For issues and feature requests, visit our GitHub repository.</p>
-    </footer>
+    <script>
+        // Mobile sidebar toggle
+        function toggleSidebar() {
+            document.querySelector('.sidebar').classList.toggle('open');
+            document.querySelector('.sidebar-overlay').classList.toggle('open');
+        }
+
+        // Close sidebar when clicking a link on mobile
+        document.querySelectorAll('.nav-link').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth <= 900) {
+                    toggleSidebar();
+                }
+            });
+        });
+
+        // Highlight active nav link on scroll
+        const sections = document.querySelectorAll('section[id]');
+        const navLinks = document.querySelectorAll('.nav-link');
+
+        function highlightNav() {
+            const scrollPos = window.scrollY + 100;
+
+            sections.forEach(section => {
+                const top = section.offsetTop;
+                const height = section.offsetHeight;
+                const id = section.getAttribute('id');
+
+                if (scrollPos >= top && scrollPos < top + height) {
+                    navLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === '#' + id) {
+                            link.classList.add('active');
+                        }
+                    });
+                }
+            });
+        }
+
+        window.addEventListener('scroll', highlightNav);
+        highlightNav();
+    </script>
 </body>
 </html>
