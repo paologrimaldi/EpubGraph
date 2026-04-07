@@ -199,6 +199,7 @@ pub struct BookQuery {
 pub struct Settings {
     pub ollama_endpoint: String,
     pub ollama_model: String,
+    pub ollama_chat_model: String,
     pub embedding_batch_size: i32,
     pub max_recommendations: i32,
     pub auto_scan_enabled: bool,
@@ -210,6 +211,7 @@ impl Default for Settings {
         Self {
             ollama_endpoint: "http://localhost:11434".to_string(),
             ollama_model: "nomic-embed-text".to_string(),
+            ollama_chat_model: "mistral:7b".to_string(),
             embedding_batch_size: 10,
             max_recommendations: 20,
             auto_scan_enabled: true,

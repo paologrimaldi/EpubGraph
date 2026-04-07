@@ -3,6 +3,7 @@
 use crate::db::Book;
 use crate::state::AppState;
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tauri::State;
 
@@ -410,7 +411,7 @@ fn get_simple_recommendations(
 /// Build recommendation reasons from edge data
 fn build_reasons(source: &Book, target: &Book, edge_type: &str, weight: f64) -> Vec<RecommendationReason> {
     let mut reasons = Vec::new();
-    
+
     match edge_type {
         "content" => {
             reasons.push(RecommendationReason::SimilarContent {
@@ -448,6 +449,407 @@ fn build_reasons(source: &Book, target: &Book, edge_type: &str, weight: f64) -> 
             });
         }
     }
-    
+
     reasons
+}
+
+// ============================================
+// SMART RECOMMENDATIONS
+// ============================================
+
+/// Information about a seed book used for recommendations
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeedBookInfo {
+    pub id: i64,
+    pub title: String,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub rating: Option<i32>,
+    pub in_up_next: bool,
+}
+
+/// A smart recommendation with structured reason and source information
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartRecommendation {
+    pub book: Book,
+    pub score: f64,
+    pub reason_code: String,
+    pub reason_details: String,
+    pub source_books: Vec<SeedBookInfo>,
+    pub edge_type: String,
+}
+
+/// Get smart recommendations based on Up Next books and highly-rated books
+#[tauri::command]
+pub async fn get_smart_recommendations(
+    state: State<'_, Arc<AppState>>,
+    limit: Option<i64>,
+) -> Result<Vec<SmartRecommendation>, String> {
+    let limit = limit.unwrap_or(24).min(100);
+
+    // Get seed books: Up Next queue + books rated ≥4 stars
+    let up_next_books = state.db.get_up_next_books().map_err(|e| e.to_string())?;
+    let highly_rated_books = state.db.get_highly_rated_books(4, 20).map_err(|e| e.to_string())?;
+
+    // Combine seeds, deduplicating (Up Next takes priority)
+    let mut seed_books: Vec<(Book, bool)> = Vec::new();
+    let mut seen_ids: HashSet<i64> = HashSet::new();
+
+    for book in up_next_books {
+        if !seen_ids.contains(&book.id) {
+            seen_ids.insert(book.id);
+            seed_books.push((book, true)); // true = in up next
+        }
+    }
+
+    for book in highly_rated_books {
+        if !seen_ids.contains(&book.id) {
+            seen_ids.insert(book.id);
+            seed_books.push((book, false)); // false = not in up next (just highly rated)
+        }
+    }
+
+    if seed_books.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Build seed info map for later reference
+    let seed_info: HashMap<i64, SeedBookInfo> = seed_books
+        .iter()
+        .map(|(book, in_up_next)| {
+            (
+                book.id,
+                SeedBookInfo {
+                    id: book.id,
+                    title: book.title.clone(),
+                    author: book.author.clone(),
+                    description: book.description.clone(),
+                    rating: book.rating,
+                    in_up_next: *in_up_next,
+                },
+            )
+        })
+        .collect();
+
+    // Collect all seed IDs for exclusion
+    let seed_ids: HashSet<i64> = seed_books.iter().map(|(b, _)| b.id).collect();
+
+    // Aggregate recommendations from all seed books
+    // Track: target_book_id -> (best_score, edge_type, source_book_ids)
+    let mut recommendation_map: HashMap<i64, (f64, String, Vec<i64>, Book)> = HashMap::new();
+
+    for (seed_book, in_up_next) in &seed_books {
+        // Weight multiplier based on seed importance
+        let seed_weight = if *in_up_next {
+            1.2 // Up Next books get priority
+        } else {
+            match seed_book.rating {
+                Some(5) => 1.1,
+                Some(4) => 1.0,
+                _ => 0.9,
+            }
+        };
+
+        // Get edges from this seed book
+        let edges = state.db.get_edges(seed_book.id, 0.3).unwrap_or_default();
+        let has_edges = !edges.is_empty();
+
+        for edge in edges {
+            let target_id = if edge.source_id == seed_book.id {
+                edge.target_id
+            } else {
+                edge.source_id
+            };
+
+            // Skip seed books and already-read books
+            if seed_ids.contains(&target_id) {
+                continue;
+            }
+
+            // Get the target book to check read status
+            let target_book = match state.db.get_book(target_id) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+
+            // Skip finished or abandoned books
+            if let Some(ref status) = target_book.read_status {
+                if status == "finished" || status == "abandoned" {
+                    continue;
+                }
+            }
+
+            let adjusted_score = edge.weight * seed_weight;
+
+            recommendation_map
+                .entry(target_id)
+                .and_modify(|(score, edge_type, sources, _)| {
+                    sources.push(seed_book.id);
+                    if adjusted_score > *score {
+                        *score = adjusted_score;
+                        *edge_type = edge.edge_type.clone();
+                    }
+                })
+                .or_insert((adjusted_score, edge.edge_type.clone(), vec![seed_book.id], target_book));
+        }
+
+        // Also check for same-author recommendations if no graph edges
+        if !has_edges {
+            if let Some(ref author) = seed_book.author {
+                let query = crate::db::BookQuery {
+                    author: Some(author.clone()),
+                    limit: Some(5),
+                    ..Default::default()
+                };
+                if let Ok(result) = state.db.query_books(&query) {
+                    for target_book in result.items {
+                        if seed_ids.contains(&target_book.id) {
+                            continue;
+                        }
+                        if let Some(ref status) = target_book.read_status {
+                            if status == "finished" || status == "abandoned" {
+                                continue;
+                            }
+                        }
+                        let score = 0.7 * seed_weight;
+                        recommendation_map
+                            .entry(target_book.id)
+                            .and_modify(|(s, _, sources, _)| {
+                                sources.push(seed_book.id);
+                                if score > *s {
+                                    *s = score;
+                                }
+                            })
+                            .or_insert((score, "author".to_string(), vec![seed_book.id], target_book));
+                    }
+                }
+            }
+        }
+    }
+
+    // Convert to SmartRecommendation structs
+    let mut recommendations: Vec<SmartRecommendation> = recommendation_map
+        .into_iter()
+        .map(|(_, (score, edge_type, source_ids, book))| {
+            let source_books: Vec<SeedBookInfo> = source_ids
+                .iter()
+                .filter_map(|id| seed_info.get(id).cloned())
+                .collect();
+
+            let (reason_code, reason_details) = generate_reason(&book, &source_books, &edge_type, score);
+
+            SmartRecommendation {
+                book,
+                score,
+                reason_code,
+                reason_details,
+                source_books,
+                edge_type,
+            }
+        })
+        .collect();
+
+    // Sort by score descending
+    recommendations.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Apply simple diversity: avoid too many from same author in top results
+    let mut final_recs: Vec<SmartRecommendation> = Vec::new();
+    let mut author_counts: HashMap<String, usize> = HashMap::new();
+    let max_per_author = 3;
+
+    for rec in recommendations {
+        if let Some(ref author) = rec.book.author {
+            let count = author_counts.entry(author.clone()).or_insert(0);
+            if *count >= max_per_author {
+                continue;
+            }
+            *count += 1;
+        }
+        final_recs.push(rec);
+        if final_recs.len() >= limit as usize {
+            break;
+        }
+    }
+
+    Ok(final_recs)
+}
+
+/// Generate reason code and human-readable details
+fn generate_reason(
+    book: &Book,
+    source_books: &[SeedBookInfo],
+    edge_type: &str,
+    score: f64,
+) -> (String, String) {
+    let primary_source = source_books.first();
+
+    match edge_type {
+        "content" => {
+            let details = if let Some(source) = primary_source {
+                if source.in_up_next {
+                    format!("Similar themes to '{}' in your Up Next", source.title)
+                } else {
+                    format!(
+                        "Similar to '{}' which you rated {} stars",
+                        source.title,
+                        source.rating.unwrap_or(4)
+                    )
+                }
+            } else {
+                format!("{}% content match", (score * 100.0) as i32)
+            };
+            ("similar_content".to_string(), details)
+        }
+        "author" => {
+            let details = if let Some(ref author) = book.author {
+                if source_books.iter().any(|s| s.in_up_next) {
+                    format!("By {}, whose books are in your Up Next", author)
+                } else {
+                    format!("By {}, whose books you enjoy", author)
+                }
+            } else {
+                "By an author you enjoy".to_string()
+            };
+            ("same_author".to_string(), details)
+        }
+        "series" => {
+            let details = if let Some(ref series) = book.series {
+                if let Some(source) = primary_source {
+                    format!("Part of the {} series like '{}'", series, source.title)
+                } else {
+                    format!("Part of the {} series", series)
+                }
+            } else {
+                "Part of a series you're reading".to_string()
+            };
+            ("series_related".to_string(), details)
+        }
+        _ => {
+            let details = if let Some(source) = primary_source {
+                format!("Related to '{}'", source.title)
+            } else {
+                "Recommended for you".to_string()
+            };
+            ("related".to_string(), details)
+        }
+    }
+}
+
+/// Generate an LLM-powered explanation for a recommendation
+#[tauri::command]
+pub async fn generate_recommendation_reason(
+    state: State<'_, Arc<AppState>>,
+    book_id: i64,
+    seed_book_ids: Vec<i64>,
+    similarity_score: f64,
+    edge_type: String,
+) -> Result<String, String> {
+    // Get the recommended book
+    let recommended_book = state.db.get_book(book_id).map_err(|e| e.to_string())?;
+
+    // Get seed books
+    let mut seed_books: Vec<Book> = Vec::new();
+    for id in &seed_book_ids {
+        if let Ok(book) = state.db.get_book(*id) {
+            seed_books.push(book);
+        }
+    }
+
+    if seed_books.is_empty() {
+        return Err("No seed books found".to_string());
+    }
+
+    // Check which seeds are in Up Next
+    let up_next_ids: HashSet<i64> = state
+        .db
+        .get_up_next_books()
+        .map(|books| books.iter().map(|b| b.id).collect())
+        .unwrap_or_default();
+
+    // Build the prompt
+    let mut prompt = String::from(
+        "You are a book recommendation assistant. Based on the following information, explain in 1-2 sentences why this book is recommended. Be specific and reference the actual books.\n\n",
+    );
+
+    // Recommended book info
+    prompt.push_str("RECOMMENDED BOOK:\n");
+    prompt.push_str(&format!("- Title: {}\n", recommended_book.title));
+    if let Some(ref author) = recommended_book.author {
+        prompt.push_str(&format!("- Author: {}\n", author));
+    }
+    if let Some(ref series) = recommended_book.series {
+        prompt.push_str(&format!(
+            "- Series: {} (Book {})\n",
+            series,
+            recommended_book.series_index.unwrap_or(1.0)
+        ));
+    }
+    if let Some(ref desc) = recommended_book.description {
+        let truncated = if desc.len() > 500 {
+            format!("{}...", &desc[..500])
+        } else {
+            desc.clone()
+        };
+        prompt.push_str(&format!("- Description: {}\n", truncated));
+    }
+
+    // Seed books info
+    prompt.push_str("\nBASED ON BOOKS YOU ENJOY:\n");
+    for seed in &seed_books {
+        prompt.push_str(&format!("- \"{}\"", seed.title));
+        if let Some(ref author) = seed.author {
+            prompt.push_str(&format!(" by {}", author));
+        }
+        prompt.push('\n');
+        if let Some(rating) = seed.rating {
+            prompt.push_str(&format!("  Your rating: {} stars\n", rating));
+        }
+        if up_next_ids.contains(&seed.id) {
+            prompt.push_str("  In your Up Next queue\n");
+        }
+        if let Some(ref desc) = seed.description {
+            let truncated = if desc.len() > 200 {
+                format!("{}...", &desc[..200])
+            } else {
+                desc.clone()
+            };
+            prompt.push_str(&format!("  Description: {}\n", truncated));
+        }
+    }
+
+    // Relationship info
+    prompt.push_str("\nRELATIONSHIP:\n");
+    prompt.push_str(&format!(
+        "- Similarity: {}% match\n",
+        (similarity_score * 100.0) as i32
+    ));
+    prompt.push_str(&format!(
+        "- Connection type: {}\n",
+        match edge_type.as_str() {
+            "content" => "similar content/themes",
+            "author" => "same author",
+            "series" => "same series",
+            _ => "related",
+        }
+    ));
+
+    prompt.push_str("\nWrite a personalized, specific explanation (1-2 sentences) referencing the actual books and why they connect:");
+
+    // Get Ollama endpoint and chat model from settings
+    let (endpoint, chat_model) = {
+        let settings = state.db.get_settings().map_err(|e| e.to_string())?;
+        (settings.ollama_endpoint, settings.ollama_chat_model)
+    };
+
+    // Create a temporary client for the chat request
+    let client = crate::ollama::OllamaClient::new(endpoint, chat_model.clone());
+    let response = client.chat(&chat_model, &prompt).await.map_err(|e| e.to_string())?;
+
+    Ok(response.trim().to_string())
 }

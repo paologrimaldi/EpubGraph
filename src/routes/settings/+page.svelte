@@ -52,6 +52,7 @@
 	// Form state
 	let ollamaEndpoint = 'http://localhost:11434';
 	let ollamaModel = 'nomic-embed-text';
+	let ollamaChatModel = 'mistral:7b';
 	let autoScan = true;
 	let currentTheme: Theme = 'system';
 
@@ -103,6 +104,7 @@
 			if (settings) {
 				ollamaEndpoint = settings.ollamaEndpoint || 'http://localhost:11434';
 				ollamaModel = settings.ollamaModel || 'nomic-embed-text';
+				ollamaChatModel = settings.ollamaChatModel || 'mistral:7b';
 				autoScan = settings.autoScanEnabled ?? true;
 			}
 		} catch (error) {
@@ -127,6 +129,7 @@
 			await updateSettings({
 				ollamaEndpoint,
 				ollamaModel,
+				ollamaChatModel,
 				autoScanEnabled: autoScan
 			});
 			toast.success('Settings saved');
@@ -439,6 +442,21 @@
 								class="glass-input"
 								placeholder="nomic-embed-text"
 							/>
+							<p class="text-xs text-muted mt-1">Used for generating book embeddings (e.g., nomic-embed-text)</p>
+						</div>
+
+						<div>
+							<label for="ollama-chat-model" class="block text-sm font-medium mb-2">
+								Chat Model
+							</label>
+							<input
+								id="ollama-chat-model"
+								type="text"
+								bind:value={ollamaChatModel}
+								class="glass-input"
+								placeholder="mistral:7b"
+							/>
+							<p class="text-xs text-muted mt-1">Used for AI explanations (e.g., mistral:7b, llama3:8b)</p>
 						</div>
 
 						<div class="flex items-center justify-between pt-2">

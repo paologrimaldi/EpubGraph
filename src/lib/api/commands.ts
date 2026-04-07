@@ -102,6 +102,24 @@ export type RecommendationReason =
 	| { type: 'readersAlsoLiked'; basedOn: string }
 	| { type: 'nextInSeries'; previous: string };
 
+export interface SeedBookInfo {
+	id: number;
+	title: string;
+	author: string | null;
+	description: string | null;
+	rating: number | null;
+	inUpNext: boolean;
+}
+
+export interface SmartRecommendation {
+	book: Book;
+	score: number;
+	reasonCode: string;
+	reasonDetails: string;
+	sourceBooks: SeedBookInfo[];
+	edgeType: string;
+}
+
 export interface GraphData {
 	nodes: GraphNode[];
 	edges: GraphEdge[];
@@ -151,6 +169,7 @@ export interface MetadataParsingResult {
 export interface Settings {
 	ollamaEndpoint: string;
 	ollamaModel: string;
+	ollamaChatModel: string;
 	embeddingBatchSize: number;
 	maxRecommendations: number;
 	autoScanEnabled: boolean;
@@ -257,6 +276,26 @@ export async function getBookGraph(
 ): Promise<GraphData> {
 	const invoke = await getInvoke();
 	return invoke('get_book_graph', { centerId, depth, maxNodes });
+}
+
+export async function getSmartRecommendations(limit?: number): Promise<SmartRecommendation[]> {
+	const invoke = await getInvoke();
+	return invoke('get_smart_recommendations', { limit });
+}
+
+export async function generateRecommendationReason(
+	bookId: number,
+	seedBookIds: number[],
+	similarityScore: number,
+	edgeType: string
+): Promise<string> {
+	const invoke = await getInvoke();
+	return invoke('generate_recommendation_reason', {
+		bookId,
+		seedBookIds,
+		similarityScore,
+		edgeType
+	});
 }
 
 // ============================================

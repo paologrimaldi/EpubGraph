@@ -515,6 +515,13 @@
 			{/if}
 		</a>
 		<a
+			href="/discover"
+			class="glass-nav-item {currentPath === '/discover' ? 'active' : ''}"
+		>
+			<Sparkles class="w-5 h-5" />
+			<span>Discover</span>
+		</a>
+		<a
 			href="/graph"
 			class="glass-nav-item {currentPath === '/graph' ? 'active' : ''}"
 		>

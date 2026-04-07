@@ -459,17 +459,18 @@ impl Database {
     pub fn get_settings(&self) -> AppResult<Settings> {
         self.with_conn(|conn| {
             let mut settings = Settings::default();
-            
+
             let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
-            
+
             for row in rows {
                 let (key, value) = row?;
                 match key.as_str() {
                     "ollama_endpoint" => settings.ollama_endpoint = value,
                     "ollama_model" => settings.ollama_model = value,
+                    "ollama_chat_model" => settings.ollama_chat_model = value,
                     "embedding_batch_size" => settings.embedding_batch_size = value.parse().unwrap_or(10),
                     "max_recommendations" => settings.max_recommendations = value.parse().unwrap_or(20),
                     "auto_scan_enabled" => settings.auto_scan_enabled = value == "1",
@@ -477,7 +478,7 @@ impl Database {
                     _ => {}
                 }
             }
-            
+
             Ok(settings)
         })
     }
@@ -707,6 +708,25 @@ impl Database {
             )?;
 
             let books = stmt.query_map([], row_to_book)?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(books)
+        })
+    }
+
+    /// Get books rated at or above a minimum rating
+    pub fn get_highly_rated_books(&self, min_rating: i32, limit: i64) -> AppResult<Vec<Book>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT b.*, r.rating, r.read_status
+                 FROM books b
+                 INNER JOIN ratings r ON b.id = r.book_id
+                 WHERE r.rating >= ?
+                 ORDER BY r.rating DESC, r.date_rated DESC
+                 LIMIT ?"
+            )?;
+
+            let books = stmt.query_map(params![min_rating, limit], row_to_book)?
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(books)

@@ -175,23 +175,27 @@ pub async fn update_settings(
         let current_endpoint = ollama.endpoint().to_string();
         ollama.configure(current_endpoint, model.clone());
     }
-    
+
+    if let Some(ref chat_model) = settings.ollama_chat_model {
+        state.db.update_setting("ollama_chat_model", chat_model).map_err(|e| e.to_string())?;
+    }
+
     if let Some(batch_size) = settings.embedding_batch_size {
         state.db.update_setting("embedding_batch_size", &batch_size.to_string()).map_err(|e| e.to_string())?;
     }
-    
+
     if let Some(max_recs) = settings.max_recommendations {
         state.db.update_setting("max_recommendations", &max_recs.to_string()).map_err(|e| e.to_string())?;
     }
-    
+
     if let Some(auto_scan) = settings.auto_scan_enabled {
         state.db.update_setting("auto_scan_enabled", if auto_scan { "1" } else { "0" }).map_err(|e| e.to_string())?;
     }
-    
+
     if let Some(interval) = settings.scan_interval_minutes {
         state.db.update_setting("scan_interval_minutes", &interval.to_string()).map_err(|e| e.to_string())?;
     }
-    
+
     Ok(())
 }
 
@@ -201,6 +205,7 @@ pub async fn update_settings(
 pub struct PartialSettings {
     pub ollama_endpoint: Option<String>,
     pub ollama_model: Option<String>,
+    pub ollama_chat_model: Option<String>,
     pub embedding_batch_size: Option<i32>,
     pub max_recommendations: Option<i32>,
     pub auto_scan_enabled: Option<bool>,

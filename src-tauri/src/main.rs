@@ -48,6 +48,8 @@ fn main() {
             commands::recommendations::get_recommendations,
             commands::recommendations::get_personalized_recommendations,
             commands::recommendations::get_book_graph,
+            commands::recommendations::get_smart_recommendations,
+            commands::recommendations::generate_recommendation_reason,
             // Ollama commands
             commands::ollama::get_ollama_status,
             commands::ollama::configure_ollama,
@@ -78,6 +80,7 @@ fn main() {
             commands::upnext::is_in_up_next,
             commands::upnext::get_up_next_count,
             commands::upnext::get_want_to_read_books,
+            commands::open_file_with_default_app,
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();

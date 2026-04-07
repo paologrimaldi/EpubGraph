@@ -122,13 +122,42 @@ impl OllamaClient {
     /// Generate embeddings for multiple texts (batched)
     pub async fn embed_batch(&self, texts: &[String]) -> AppResult<Vec<Vec<f32>>> {
         let mut embeddings = Vec::with_capacity(texts.len());
-        
+
         for text in texts {
             let embedding = self.embed(text).await?;
             embeddings.push(embedding);
         }
-        
+
         Ok(embeddings)
+    }
+
+    /// Generate a chat completion using a specified model
+    pub async fn chat(&self, model: &str, prompt: &str) -> AppResult<String> {
+        let url = format!("{}/api/generate", self.endpoint);
+
+        let request = ChatRequest {
+            model: model.to_string(),
+            prompt: prompt.to_string(),
+            stream: false,
+        };
+
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| AppError::Ollama(format!("Chat request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::Ollama(format!("Chat failed ({}): {}", status, body)));
+        }
+
+        let result: ChatResponse = response.json().await
+            .map_err(|e| AppError::Ollama(format!("Failed to parse chat response: {}", e)))?;
+
+        Ok(result.response)
     }
 }
 
@@ -180,6 +209,18 @@ struct ModelInfo {
     #[serde(default)]
     #[allow(dead_code)]
     size: i64,
+}
+
+#[derive(Serialize)]
+struct ChatRequest {
+    model: String,
+    prompt: String,
+    stream: bool,
+}
+
+#[derive(Deserialize)]
+struct ChatResponse {
+    response: String,
 }
 
 /// Generate embedding text from book metadata

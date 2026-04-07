@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { browser } from '$app/environment';
-	import type { Book, Recommendation, ReadStatus } from '$lib/api/commands';
-	import { getCoverImage, getRecommendations, formatFileSize, formatDate, getReasonText } from '$lib/api/commands';
+	import type { Book, Recommendation, ReadStatus, SmartRecommendation } from '$lib/api/commands';
+	import { getCoverImage, getRecommendations, formatFileSize, formatDate, getReasonText, generateRecommendationReason } from '$lib/api/commands';
 	import { rateBook, setBookReadStatus } from '$lib/stores/library';
 	import { isInUpNextSync, toggleUpNext, loadUpNextBooks, upNextBooks, removeFromUpNext } from '$lib/stores/upnext';
 	import {
@@ -16,12 +16,18 @@
 		Sparkles,
 		ExternalLink,
 		ListPlus,
-		ListMinus
+		ListMinus,
+		Loader2
 	} from 'lucide-svelte';
 
 	export let book: Book;
-	// Context: 'library' shows Up Next button, 'upnext' hides it and auto-removes on status change
-	export let context: 'library' | 'upnext' = 'library';
+	// Context: 'library' shows Up Next button, 'upnext' hides it and auto-removes on status change, 'discover' behaves like library
+	export let context: 'library' | 'upnext' | 'discover' = 'library';
+	// Recommendation context for Discover page
+	export let recommendation: SmartRecommendation | null = null;
+	// Cache functions passed from parent (Discover page)
+	export let getCachedReason: ((bookId: number) => { reason: string; timestamp: number } | null) | null = null;
+	export let setCachedReason: ((bookId: number, reason: string) => void) | null = null;
 
 	const dispatch = createEventDispatcher<{ close: void; bookRemoved: number }>();
 
@@ -29,6 +35,11 @@
 	let recommendations: Recommendation[] = [];
 	let loadingRecs = false;
 	let loadingCover = false;
+
+	// LLM explanation state (for Discover context)
+	let llmReason: string | null = null;
+	let loadingLlm = false;
+	let llmError: string | null = null;
 
 	const readStatuses: { value: ReadStatus; label: string }[] = [
 		{ value: 'unread', label: 'Unread' },
@@ -41,6 +52,16 @@
 	// Reactive: reload data when book changes
 	$: if (browser && book?.id) {
 		loadBookData(book.id);
+		// Reset LLM state and check cache when book changes
+		llmReason = null;
+		llmError = null;
+		loadingLlm = false;
+		if (recommendation && getCachedReason) {
+			const cached = getCachedReason(book.id);
+			if (cached) {
+				llmReason = cached.reason;
+			}
+		}
 	}
 
 	async function loadBookData(bookId: number) {
@@ -104,9 +125,9 @@
 		}
 	}
 
-	function openFile() {
-		// This would use Tauri's shell API to open the file
-		window.__TAURI__?.shell?.open(book.path);
+	async function openFile() {
+		const { invoke } = await import('@tauri-apps/api/core');
+		await invoke('open_file_with_default_app', { path: book.path });
 	}
 
 	let isTogglingUpNext = false;
@@ -132,6 +153,31 @@
 			dispatch('close');
 		} finally {
 			isTogglingUpNext = false;
+		}
+	}
+
+	async function fetchLLMExplanation() {
+		if (!recommendation || loadingLlm || llmReason) return;
+
+		loadingLlm = true;
+		llmError = null;
+
+		try {
+			const reason = await generateRecommendationReason(
+				recommendation.book.id,
+				recommendation.sourceBooks.map((s) => s.id),
+				recommendation.score,
+				recommendation.edgeType
+			);
+			llmReason = reason;
+			if (setCachedReason) {
+				setCachedReason(book.id, reason);
+			}
+		} catch (error) {
+			console.error('Failed to generate LLM reason:', error);
+			llmError = 'Could not generate explanation. Make sure Ollama is running with the configured model.';
+		} finally {
+			loadingLlm = false;
 		}
 	}
 
@@ -232,6 +278,61 @@
 					Description
 				</h4>
 				<p class="text-sm leading-relaxed line-clamp-6">{book.description}</p>
+			</div>
+		{/if}
+
+		<!-- Why This Recommendation (Discover context only) -->
+		{#if context === 'discover' && recommendation}
+			<div>
+				<div class="flex items-center gap-2 mb-3">
+					<Sparkles class="w-4 h-4" style="color: var(--gw-accent)" />
+					<h4 class="text-sm font-medium" style="color: var(--gw-accent)">
+						Why This Recommendation
+					</h4>
+				</div>
+
+				<!-- Structured reason -->
+				<p class="text-sm mb-3 text-surface-600 dark:text-surface-400">{recommendation.reasonDetails}</p>
+
+				<!-- Source books -->
+				{#if recommendation.sourceBooks.length > 0}
+					<div class="flex flex-wrap gap-1 mb-3">
+						{#each recommendation.sourceBooks as source}
+							<span
+								class="text-xs px-2 py-1 rounded-full"
+								style="background: var(--gw-accent-subtle); color: var(--gw-accent)"
+								title={source.inUpNext ? 'In your Up Next' : source.rating ? `Rated ${source.rating} stars` : ''}
+							>
+								Based on "{source.title}"
+							</span>
+						{/each}
+					</div>
+				{/if}
+
+				<!-- LLM explanation -->
+				{#if llmReason}
+					<div class="p-3 rounded-lg" style="background: var(--gw-glass)">
+						<p class="text-sm leading-relaxed">{llmReason}</p>
+					</div>
+				{:else if llmError}
+					<div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+						<p class="text-sm text-red-400">{llmError}</p>
+					</div>
+				{:else}
+					<button
+						class="btn-secondary w-full flex items-center justify-center gap-2"
+						on:click={fetchLLMExplanation}
+						disabled={loadingLlm}
+					>
+						{#if loadingLlm}
+							<Loader2 class="w-4 h-4 animate-spin" />
+							<span>Generating explanation...</span>
+						{:else}
+							<Sparkles class="w-4 h-4" />
+							<span>Get AI Explanation</span>
+						{/if}
+					</button>
+				{/if}
 			</div>
 		{/if}
 

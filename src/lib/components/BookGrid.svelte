@@ -42,9 +42,10 @@
 		await loadUpNextBooks();
 	}
 
-	function handleOpenBook() {
+	async function handleOpenBook() {
 		if (!contextMenuBook) return;
-		window.__TAURI__?.shell?.open(contextMenuBook.path);
+		const { invoke } = await import('@tauri-apps/api/core');
+		await invoke('open_file_with_default_app', { path: contextMenuBook.path });
 	}
 
 	function handleViewDetails() {
