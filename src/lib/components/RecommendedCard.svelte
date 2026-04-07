@@ -40,16 +40,16 @@
 </script>
 
 <button
-	class="group text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gw-accent)] focus-visible:ring-offset-2 rounded-2xl"
+	class="group text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gw-accent)] focus-visible:ring-offset-1 rounded-xl"
 	on:click={handleClick}
 >
-	<div class="card overflow-hidden transition-all duration-200 group-hover:shadow-lg">
+	<div class="card overflow-hidden">
 		<!-- Cover -->
-		<div class="relative book-cover bg-glass">
+		<div class="relative book-cover" style="background: var(--gw-surface-tint)">
 			{#if loading}
 				<div class="absolute inset-0 flex items-center justify-center">
 					<div class="animate-pulse">
-						<BookOpen class="w-12 h-12 text-muted" />
+						<BookOpen class="w-10 h-10 text-muted" />
 					</div>
 				</div>
 			{:else if coverSrc}
@@ -59,46 +59,44 @@
 					class="w-full h-full object-cover"
 				/>
 			{:else}
-				<div class="absolute inset-0 flex items-center justify-center p-4">
+				<div class="absolute inset-0 flex items-center justify-center p-3">
 					<div class="text-center">
-						<BookOpen class="w-10 h-10 text-muted mx-auto mb-2" />
-						<p class="text-xs text-muted line-clamp-2">{recommendation.book.title}</p>
+						<BookOpen class="w-8 h-8 text-muted mx-auto mb-1.5" />
+						<p class="text-[11px] text-muted line-clamp-2 leading-tight">{recommendation.book.title}</p>
 					</div>
 				</div>
 			{/if}
 
-			<!-- Match score indicator -->
-			<div
-				class="absolute top-2 right-2 flex items-center gap-1 bg-black/60 backdrop-blur-sm rounded px-1.5 py-0.5"
-			>
-				<Sparkles class="w-3 h-3" style="color: {getMatchColor(recommendation.score)}" />
-				<span class="text-xs text-white font-medium">{getMatchPercentage(recommendation.score)}%</span>
+			<!-- Match score -->
+			<div class="absolute top-1.5 right-1.5 flex items-center gap-0.5 bg-black/60 backdrop-blur-sm rounded-md px-1.5 py-0.5">
+				<Sparkles class="w-2.5 h-2.5" style="color: {getMatchColor(recommendation.score)}" />
+				<span class="text-[10px] text-white font-medium tabular-nums">{getMatchPercentage(recommendation.score)}%</span>
 			</div>
 		</div>
 
 		<!-- Info -->
-		<div class="p-3">
-			<h3 class="font-medium text-sm line-clamp-2 leading-tight mb-1">
+		<div class="px-2.5 py-2">
+			<h3 class="font-medium text-[12px] line-clamp-2 leading-snug tracking-tight mb-0.5">
 				{recommendation.book.title}
 			</h3>
 			{#if recommendation.book.author}
-				<p class="text-xs text-muted truncate mb-2">{recommendation.book.author}</p>
+				<p class="text-[11px] text-muted truncate mb-1.5">{recommendation.book.author}</p>
 			{/if}
 
-			<!-- Structured reason -->
-			<div class="mt-2 p-2 rounded-lg bg-glass/50">
-				<p class="text-xs" style="color: var(--gw-accent)">
+			<!-- Reason -->
+			<div class="p-1.5 rounded-md" style="background: var(--gw-surface-tint)">
+				<p class="text-[10px] leading-snug" style="color: var(--gw-accent-text)">
 					{recommendation.reasonDetails}
 				</p>
 			</div>
 
 			<!-- Source books -->
 			{#if recommendation.sourceBooks.length > 0}
-				<div class="mt-2 flex flex-wrap gap-1">
+				<div class="mt-1.5 flex flex-wrap gap-1">
 					{#each recommendation.sourceBooks.slice(0, 2) as source}
 						<span
-							class="text-[10px] px-1.5 py-0.5 rounded-full truncate max-w-[120px]"
-							style="background: var(--gw-accent-subtle); color: var(--gw-accent)"
+							class="text-[9px] px-1.5 py-[1px] rounded-full truncate max-w-[110px]"
+							style="background: var(--gw-accent-subtle); color: var(--gw-accent-text)"
 							title={source.inUpNext ? 'In your Up Next' : `Rated ${source.rating} stars`}
 						>
 							{source.title}
@@ -106,8 +104,8 @@
 					{/each}
 					{#if recommendation.sourceBooks.length > 2}
 						<span
-							class="text-[10px] px-1.5 py-0.5 rounded-full"
-							style="background: var(--gw-accent-subtle); color: var(--gw-accent)"
+							class="text-[9px] px-1.5 py-[1px] rounded-full"
+							style="background: var(--gw-accent-subtle); color: var(--gw-accent-text)"
 						>
 							+{recommendation.sourceBooks.length - 2} more
 						</span>

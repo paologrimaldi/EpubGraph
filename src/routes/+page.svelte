@@ -31,14 +31,12 @@
 	}
 
 	function handleSelectBook(book: any) {
-		// Prevent re-selecting the same book
 		if ($selectedBook?.id === book.id) return;
 		selectBook(book);
 	}
 
 	onMount(async () => {
 		if (!browser) return;
-		// Always load books on mount
 		try {
 			await loadBooks();
 		} catch (err) {
@@ -53,12 +51,12 @@
 
 <div class="flex flex-col h-full">
 	<!-- Header -->
-	<header class="flex-none px-6 py-4 border-b border-glass-subtle">
+	<header class="flex-none px-5 py-3.5 border-b border-[var(--gw-separator)]">
 		<div class="flex items-center justify-between gap-4">
-			<div class="flex items-center gap-3">
-				<BookOpen class="w-6 h-6" style="color: var(--gw-accent)" />
-				<h1 class="text-xl font-semibold">Library</h1>
-				<span class="text-sm text-muted">
+			<div class="flex items-center gap-2.5">
+				<BookOpen class="w-5 h-5" style="color: var(--gw-accent)" />
+				<h1 class="text-[17px] font-semibold tracking-tight">Library</h1>
+				<span class="text-[12px] text-muted tabular-nums">
 					{$totalBooks.toLocaleString()} books
 				</span>
 			</div>
@@ -70,7 +68,7 @@
 	<!-- Content -->
 	<div class="flex-1 flex overflow-hidden">
 		<!-- Book Grid -->
-		<div class="flex-1 overflow-auto p-6">
+		<div class="flex-1 overflow-auto p-5">
 			{#if $books.length === 0 && !$isLoading}
 				<EmptyState
 					icon={Library}
@@ -93,7 +91,7 @@
 
 		<!-- Book Detail Sidebar -->
 		{#if showDetail && $selectedBook}
-			<aside class="w-96 flex-none border-l border-glass-subtle overflow-auto">
+			<aside class="w-[22rem] flex-none border-l border-[var(--gw-separator)] overflow-auto">
 				{#key $selectedBook.id}
 					<BookDetail book={$selectedBook} on:close={closeDetail} />
 				{/key}

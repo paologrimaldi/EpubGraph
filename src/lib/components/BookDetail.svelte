@@ -21,11 +21,8 @@
 	} from 'lucide-svelte';
 
 	export let book: Book;
-	// Context: 'library' shows Up Next button, 'upnext' hides it and auto-removes on status change, 'discover' behaves like library
 	export let context: 'library' | 'upnext' | 'discover' = 'library';
-	// Recommendation context for Discover page
 	export let recommendation: SmartRecommendation | null = null;
-	// Cache functions passed from parent (Discover page)
 	export let getCachedReason: ((bookId: number) => { reason: string; timestamp: number } | null) | null = null;
 	export let setCachedReason: ((bookId: number, reason: string) => void) | null = null;
 
@@ -36,7 +33,6 @@
 	let loadingRecs = false;
 	let loadingCover = false;
 
-	// LLM explanation state (for Discover context)
 	let llmReason: string | null = null;
 	let loadingLlm = false;
 	let llmError: string | null = null;
@@ -49,10 +45,8 @@
 		{ value: 'abandoned', label: 'Abandoned' }
 	];
 
-	// Reactive: reload data when book changes
 	$: if (browser && book?.id) {
 		loadBookData(book.id);
-		// Reset LLM state and check cache when book changes
 		llmReason = null;
 		llmError = null;
 		loadingLlm = false;
@@ -65,11 +59,9 @@
 	}
 
 	async function loadBookData(bookId: number) {
-		// Reset state
 		coverSrc = null;
 		recommendations = [];
 
-		// Load cover with timeout (non-blocking)
 		loadingCover = true;
 		const coverTimeout = new Promise<string | null>((_, reject) =>
 			setTimeout(() => reject(new Error('Cover timeout')), 3000)
@@ -87,7 +79,6 @@
 				if (book?.id === bookId) loadingCover = false;
 			});
 
-		// Load recommendations with timeout (non-blocking)
 		loadingRecs = true;
 		const recsTimeout = new Promise<Recommendation[]>((_, reject) =>
 			setTimeout(() => reject(new Error('Recommendations timeout')), 5000)
@@ -115,8 +106,6 @@
 		const newStatus = select.value as ReadStatus;
 		await setBookReadStatus(book.id, newStatus);
 
-		// If we're on the Up Next page and status changed, remove the book from Up Next
-		// (since explicit Up Next entries should be removed when status changes)
 		if (context === 'upnext') {
 			await removeFromUpNext(book.id);
 			await loadUpNextBooks();
@@ -181,53 +170,51 @@
 		}
 	}
 
-	// Reactive: check if book is in Up Next
 	$: isBookInUpNext = isInUpNextSync(book.id);
-
-	// Re-check when upNextBooks changes
 	$: $upNextBooks, isBookInUpNext = isInUpNextSync(book.id);
 </script>
 
-<div class="flex flex-col h-full bg-glass">
+<div class="flex flex-col h-full" style="background: var(--gw-bg)">
 	<!-- Header -->
-	<div class="flex items-center justify-between p-4 border-b border-glass-subtle">
-		<h2 class="font-semibold">Book Details</h2>
+	<div class="flex items-center justify-between px-5 py-3.5 border-b border-[var(--gw-separator)]">
+		<h2 class="text-[13px] font-semibold text-secondary">Book Details</h2>
 		<button
-			class="p-1.5 rounded-lg hover:bg-glass transition-colors"
+			class="w-6 h-6 rounded-md flex items-center justify-center hover:bg-[var(--gw-surface-tint)] transition-colors"
 			on:click={() => dispatch('close')}
 		>
-			<X class="w-5 h-5" />
+			<X class="w-4 h-4 text-muted" />
 		</button>
 	</div>
 
 	<!-- Content -->
-	<div class="flex-1 overflow-auto p-4 space-y-6">
+	<div class="flex-1 overflow-auto px-5 py-5 space-y-5">
 		<!-- Cover and Title -->
 		<div class="flex gap-4">
-			<div class="w-24 flex-none">
+			<div class="w-[88px] flex-none">
 				{#if coverSrc}
 					<img
 						src={coverSrc}
 						alt={book.title}
-						class="w-full rounded-lg shadow-md"
+						class="w-full rounded-lg"
+						style="box-shadow: 0 2px 12px rgba(0,0,0,0.12)"
 					/>
 				{:else}
-					<div class="w-full book-cover bg-surface-200 dark:bg-surface-800 rounded-lg flex items-center justify-center">
-						<BookOpen class="w-10 h-10 text-surface-400" />
+					<div class="w-full book-cover rounded-lg flex items-center justify-center" style="background: var(--gw-surface-tint)">
+						<BookOpen class="w-8 h-8 text-muted" />
 					</div>
 				{/if}
 			</div>
 			<div class="flex-1 min-w-0">
-				<h3 class="font-semibold text-lg leading-tight mb-1">{book.title}</h3>
+				<h3 class="text-[15px] font-semibold leading-snug tracking-tight mb-1">{book.title}</h3>
 				{#if book.author}
-					<p class="text-surface-600 dark:text-surface-400 flex items-center gap-1">
-						<User class="w-4 h-4" />
+					<p class="text-[13px] text-secondary flex items-center gap-1.5">
+						<User class="w-3.5 h-3.5 text-muted" />
 						{book.author}
 					</p>
 				{/if}
 				{#if book.series}
-					<p class="text-primary-600 dark:text-primary-400 flex items-center gap-1 mt-1">
-						<BookMarked class="w-4 h-4" />
+					<p class="text-[12px] flex items-center gap-1.5 mt-1" style="color: var(--gw-accent-text)">
+						<BookMarked class="w-3.5 h-3.5" />
 						{book.series} #{book.seriesIndex ?? '?'}
 					</p>
 				{/if}
@@ -236,19 +223,19 @@
 
 		<!-- Rating -->
 		<div>
-			<label class="text-sm font-medium text-surface-600 dark:text-surface-400 mb-2 block">
+			<label class="text-[11px] font-semibold text-muted uppercase tracking-widest mb-2 block">
 				Your Rating
 			</label>
-			<div class="flex gap-1">
+			<div class="flex gap-0.5">
 				{#each [1, 2, 3, 4, 5] as rating}
 					<button
-						class="p-1 transition-colors"
+						class="p-0.5 transition-colors rounded"
 						on:click={() => handleRating(rating)}
 					>
 						<Star
-							class="w-6 h-6 {book.rating && book.rating >= rating
+							class="w-5 h-5 {book.rating && book.rating >= rating
 								? 'text-yellow-400 fill-yellow-400'
-								: 'text-surface-300 dark:text-surface-600'}"
+								: 'text-[var(--gw-fg-muted)]'}"
 						/>
 					</button>
 				{/each}
@@ -257,7 +244,7 @@
 
 		<!-- Read Status -->
 		<div>
-			<label class="text-sm font-medium text-surface-600 dark:text-surface-400 mb-2 block">
+			<label class="text-[11px] font-semibold text-muted uppercase tracking-widest mb-2 block">
 				Read Status
 			</label>
 			<select
@@ -274,33 +261,31 @@
 		<!-- Description -->
 		{#if book.description}
 			<div>
-				<h4 class="text-sm font-medium text-surface-600 dark:text-surface-400 mb-2">
+				<h4 class="text-[11px] font-semibold text-muted uppercase tracking-widest mb-2">
 					Description
 				</h4>
-				<p class="text-sm leading-relaxed line-clamp-6">{book.description}</p>
+				<p class="text-[13px] leading-relaxed text-secondary line-clamp-6">{book.description}</p>
 			</div>
 		{/if}
 
 		<!-- Why This Recommendation (Discover context only) -->
 		{#if context === 'discover' && recommendation}
 			<div>
-				<div class="flex items-center gap-2 mb-3">
-					<Sparkles class="w-4 h-4" style="color: var(--gw-accent)" />
-					<h4 class="text-sm font-medium" style="color: var(--gw-accent)">
+				<div class="flex items-center gap-1.5 mb-2.5">
+					<Sparkles class="w-3.5 h-3.5" style="color: var(--gw-accent)" />
+					<h4 class="text-[12px] font-semibold" style="color: var(--gw-accent-text)">
 						Why This Recommendation
 					</h4>
 				</div>
 
-				<!-- Structured reason -->
-				<p class="text-sm mb-3 text-surface-600 dark:text-surface-400">{recommendation.reasonDetails}</p>
+				<p class="text-[13px] leading-relaxed mb-2.5 text-secondary">{recommendation.reasonDetails}</p>
 
-				<!-- Source books -->
 				{#if recommendation.sourceBooks.length > 0}
-					<div class="flex flex-wrap gap-1 mb-3">
+					<div class="flex flex-wrap gap-1 mb-2.5">
 						{#each recommendation.sourceBooks as source}
 							<span
-								class="text-xs px-2 py-1 rounded-full"
-								style="background: var(--gw-accent-subtle); color: var(--gw-accent)"
+								class="text-[11px] px-2 py-0.5 rounded-full"
+								style="background: var(--gw-accent-subtle); color: var(--gw-accent-text)"
 								title={source.inUpNext ? 'In your Up Next' : source.rating ? `Rated ${source.rating} stars` : ''}
 							>
 								Based on "{source.title}"
@@ -309,14 +294,13 @@
 					</div>
 				{/if}
 
-				<!-- LLM explanation -->
 				{#if llmReason}
-					<div class="p-3 rounded-lg" style="background: var(--gw-glass)">
-						<p class="text-sm leading-relaxed">{llmReason}</p>
+					<div class="p-3 rounded-lg" style="background: var(--gw-surface-tint)">
+						<p class="text-[13px] leading-relaxed text-secondary">{llmReason}</p>
 					</div>
 				{:else if llmError}
-					<div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-						<p class="text-sm text-red-400">{llmError}</p>
+					<div class="p-3 rounded-lg" style="background: rgba(255, 59, 48, 0.06); border: 0.5px solid rgba(255, 59, 48, 0.12)">
+						<p class="text-[12px]" style="color: var(--gw-error)">{llmError}</p>
 					</div>
 				{:else}
 					<button
@@ -325,10 +309,10 @@
 						disabled={loadingLlm}
 					>
 						{#if loadingLlm}
-							<Loader2 class="w-4 h-4 animate-spin" />
+							<Loader2 class="w-3.5 h-3.5 animate-spin" />
 							<span>Generating explanation...</span>
 						{:else}
-							<Sparkles class="w-4 h-4" />
+							<Sparkles class="w-3.5 h-3.5" />
 							<span>Get AI Explanation</span>
 						{/if}
 					</button>
@@ -337,98 +321,96 @@
 		{/if}
 
 		<!-- Metadata -->
-		<div class="grid grid-cols-2 gap-3 text-sm">
-			<div class="flex items-center gap-2 text-surface-600 dark:text-surface-400">
-				<Calendar class="w-4 h-4" />
+		<div class="grid grid-cols-2 gap-2.5">
+			<div class="flex items-center gap-1.5 text-[12px] text-secondary">
+				<Calendar class="w-3.5 h-3.5 text-muted" />
 				<span>Added {formatDate(book.dateAdded)}</span>
 			</div>
-			<div class="flex items-center gap-2 text-surface-600 dark:text-surface-400">
-				<HardDrive class="w-4 h-4" />
+			<div class="flex items-center gap-1.5 text-[12px] text-secondary">
+				<HardDrive class="w-3.5 h-3.5 text-muted" />
 				<span>{formatFileSize(book.fileSize)}</span>
 			</div>
 			{#if book.language}
-				<div class="flex items-center gap-2 text-surface-600 dark:text-surface-400">
-					<span>Language: {book.language}</span>
+				<div class="text-[12px] text-secondary">
+					Language: {book.language}
 				</div>
 			{/if}
 			{#if book.publisher}
-				<div class="flex items-center gap-2 text-surface-600 dark:text-surface-400">
-					<span>Publisher: {book.publisher}</span>
+				<div class="text-[12px] text-secondary">
+					Publisher: {book.publisher}
 				</div>
 			{/if}
 		</div>
 
 		<!-- Recommendations -->
 		<div>
-			<div class="flex items-center gap-2 mb-3">
-				<Sparkles class="w-4 h-4" style="color: var(--gw-accent)" />
-				<h4 class="text-sm font-medium" style="color: var(--gw-accent)">Similar Books</h4>
+			<div class="flex items-center gap-1.5 mb-2.5">
+				<Sparkles class="w-3.5 h-3.5" style="color: var(--gw-accent)" />
+				<h4 class="text-[11px] font-semibold uppercase tracking-widest" style="color: var(--gw-accent-text)">Similar Books</h4>
 			</div>
 
 			{#if loadingRecs}
 				<div class="flex justify-center py-4">
-					<div class="animate-spin rounded-full h-6 w-6 border-2 border-t-transparent" style="border-color: var(--gw-accent); border-top-color: transparent"></div>
+					<div class="animate-spin rounded-full h-5 w-5 border-2 border-t-transparent" style="border-color: var(--gw-accent); border-top-color: transparent"></div>
 				</div>
 			{:else if recommendations.length > 0}
-				<div class="space-y-2">
+				<div class="space-y-1">
 					{#each recommendations as rec}
-						<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-800">
+						<div class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-[var(--gw-surface-tint)] transition-colors">
 							<div class="flex-1 min-w-0">
-								<p class="text-sm font-medium truncate">{rec.book.title}</p>
+								<p class="text-[13px] font-medium truncate">{rec.book.title}</p>
 								{#if rec.reasons.length > 0}
-									<p class="text-xs text-surface-500 truncate">
+									<p class="text-[11px] text-muted truncate">
 										{getReasonText(rec.reasons[0])}
 									</p>
 								{/if}
 							</div>
-							<span class="text-xs text-surface-500">
+							<span class="text-[11px] font-medium text-muted tabular-nums">
 								{Math.round(rec.score * 100)}%
 							</span>
 						</div>
 					{/each}
 				</div>
 			{:else}
-				<p class="text-sm text-surface-500 text-center py-4">
+				<p class="text-[12px] text-muted text-center py-3">
 					No recommendations available yet
 				</p>
 			{/if}
 		</div>
+	</div>
 
-		<!-- Actions -->
-		<div class="pt-4 border-t border-glass-subtle space-y-2">
+	<!-- Actions — pinned to bottom -->
+	<div class="flex-none px-5 py-4 border-t border-[var(--gw-separator)] space-y-2">
+		<button
+			class="btn-primary w-full"
+			on:click={openFile}
+		>
+			<ExternalLink class="w-3.5 h-3.5" />
+			Open Book
+		</button>
+		{#if context === 'library'}
 			<button
-				class="btn-primary w-full"
-				on:click={openFile}
+				class="btn-secondary w-full flex items-center justify-center gap-2"
+				on:click={handleToggleUpNext}
+				disabled={isTogglingUpNext}
 			>
-				<ExternalLink class="w-4 h-4" />
-				Open Book
-			</button>
-			{#if context === 'library'}
-				<!-- Library: Show add/remove toggle -->
-				<button
-					class="btn-secondary w-full flex items-center justify-center gap-2"
-					on:click={handleToggleUpNext}
-					disabled={isTogglingUpNext}
-				>
-					{#if isBookInUpNext}
-						<ListMinus class="w-4 h-4" />
-						Remove from Up Next
-					{:else}
-						<ListPlus class="w-4 h-4" />
-						Add to Up Next
-					{/if}
-				</button>
-			{:else if context === 'upnext' && isBookInUpNext}
-				<!-- Up Next page: Only show remove button if book was explicitly added (not via "want" status) -->
-				<button
-					class="btn-secondary w-full flex items-center justify-center gap-2"
-					on:click={handleRemoveFromUpNext}
-					disabled={isTogglingUpNext}
-				>
-					<ListMinus class="w-4 h-4" />
+				{#if isBookInUpNext}
+					<ListMinus class="w-3.5 h-3.5" />
 					Remove from Up Next
-				</button>
-			{/if}
-		</div>
+				{:else}
+					<ListPlus class="w-3.5 h-3.5" />
+					Add to Up Next
+				{/if}
+			</button>
+		{:else if context === 'upnext' && isBookInUpNext}
+			<button
+				class="btn-secondary w-full flex items-center justify-center gap-2"
+				on:click={handleRemoveFromUpNext}
+				disabled={isTogglingUpNext}
+			>
+				<ListMinus class="w-3.5 h-3.5" />
+				Remove from Up Next
+			</button>
+		{/if}
 	</div>
 </div>
