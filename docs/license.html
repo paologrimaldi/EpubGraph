@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>License - EpubGraph</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root{--void:#0a0908;--surface:#221f1a;--obsidian:#12110e;--glass-border:rgba(255,245,220,.08);--text:#ede8df;--text-2:#b5ad9e;--text-3:#7a7265;--accent:#c18d1b;--accent-2:#d4a84b}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'DM Sans',system-ui,sans-serif;background:var(--void);color:var(--text);line-height:1.8;font-size:15px;-webkit-font-smoothing:antialiased}
+        .page{max-width:720px;margin:0 auto;padding:4rem 2rem 6rem}
+        .back{display:inline-flex;align-items:center;gap:.4rem;color:var(--accent-2);text-decoration:none;font-size:.85rem;margin-bottom:2rem}
+        .back:hover{text-decoration:underline}
+        h1{font-family:'Playfair Display',serif;font-size:2.2rem;margin-bottom:.5rem}
+        .subtitle{font-size:.9rem;color:var(--text-3);margin-bottom:2.5rem}
+        h2{font-size:1.15rem;font-weight:600;margin:2rem 0 .75rem;color:var(--text)}
+        p{color:var(--text-2);margin-bottom:1rem}
+        a{color:var(--accent-2)}
+        pre{background:var(--obsidian);border:1px solid var(--glass-border);border-radius:8px;padding:1.5rem;overflow-x:auto;margin:1.5rem 0;font-family:'JetBrains Mono',monospace;font-size:.82rem;line-height:1.8;color:var(--text-2)}
+        .badge{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .7rem;border-radius:9999px;font-size:.75rem;font-weight:600;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.2);color:#7a9a6d;margin-bottom:1.5rem}
+        .divider{height:1px;background:var(--glass-border);margin:2rem 0}
+    </style>
+</head>
+<body>
+    <div class="page">
+        <a href="index.html" class="back">&larr; Back to EpubGraph</a>
+        <h1>License</h1>
+        <p class="subtitle">EpubGraph is open-source software</p>
+        <div class="badge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M9 12l2 2 4-4"/></svg>
+            MIT License
+        </div>
+
+        <pre>MIT License
+
+Copyright (c) 2025-2026 Paolo Grimaldi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+
+        <h2>What This Means</h2>
+        <p>The MIT License is one of the most permissive open-source licenses. You are free to:</p>
+        <p><strong>Use</strong> the software for any purpose, including commercial applications.<br>
+        <strong>Modify</strong> the source code to suit your needs.<br>
+        <strong>Distribute</strong> copies of the original or modified software.<br>
+        <strong>Sublicense</strong> the software as part of a larger project.</p>
+        <p>The only requirement is that the copyright notice and license text be included in all copies or substantial portions of the software.</p>
+
+        <h2>Third-Party Dependencies</h2>
+        <p>EpubGraph is built with the following open-source technologies, each under their own licenses:</p>
+        <p><strong>Tauri</strong> (MIT/Apache 2.0) &mdash; Desktop application framework<br>
+        <strong>Svelte</strong> (MIT) &mdash; Frontend framework<br>
+        <strong>Rust</strong> (MIT/Apache 2.0) &mdash; Backend language<br>
+        <strong>SQLite</strong> (Public Domain) &mdash; Database engine<br>
+        <strong>Three.js</strong> (MIT) &mdash; 3D visualization<br>
+        <strong>Sigma.js</strong> (MIT) &mdash; Graph visualization</p>
+
+        <div class="divider"></div>
+        <p style="font-size:.82rem;color:var(--text-3)">Full dependency list available in the project's <code style="background:rgba(193,141,27,.1);color:var(--accent-2);padding:.1rem .3rem;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:.78rem">Cargo.toml</code> and <code style="background:rgba(193,141,27,.1);color:var(--accent-2);padding:.1rem .3rem;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:.78rem">package.json</code> files.</p>
+    </div>
+</body>
+</html>

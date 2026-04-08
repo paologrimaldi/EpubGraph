@@ -1,0 +1,1499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EpubGraph - Biblioteca Inteligente de Ebooks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,700;1,700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/ScrollTrigger.min.js"></script>
+    <style>
+        :root {
+            --void: #0a0908;
+            --obsidian: #12110e;
+            --slate: #1a1814;
+            --surface: #221f1a;
+            --surface-2: #2c2822;
+            --glass: rgba(34, 31, 26, 0.7);
+            --glass-border: rgba(255, 245, 220, 0.08);
+            --glass-shine: rgba(255, 245, 220, 0.03);
+            --text: #ede8df;
+            --text-2: #b5ad9e;
+            --text-3: #7a7265;
+            --accent: #c18d1b;
+            --accent-2: #d4a84b;
+            --accent-glow: rgba(193, 141, 27, 0.15);
+            --accent-glow-2: rgba(193, 141, 27, 0.08);
+            --ember: #c0542e;
+            --gold: #d4a84b;
+            --jade: #7a9a6d;
+            --sky: #8aabbd;
+            --rose: #b87a6e;
+            --radius: 12px;
+            --radius-sm: 8px;
+            --radius-xs: 6px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'DM Sans', system-ui, sans-serif;
+            background: var(--void);
+            color: var(--text);
+            line-height: 1.72;
+            font-size: 15px;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        ::selection { background: var(--accent); color: white; }
+        a { color: var(--accent-2); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* ===== NAVIGATION ===== */
+        .topnav {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 1000;
+            padding: 0 2rem;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(6, 6, 10, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            transition: background 0.3s;
+        }
+
+        .topnav.scrolled { background: rgba(6, 6, 10, 0.95); }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            text-decoration: none;
+        }
+
+        .nav-logo-icon {
+            width: 32px; height: 32px;
+            border-radius: var(--radius-xs);
+            background: linear-gradient(135deg, var(--accent), #8a6414);
+            display: grid; place-items: center;
+        }
+
+        .nav-logo-icon svg { width: 16px; height: 16px; color: white; }
+
+        .nav-logo-text {
+            font-family: 'Playfair Display', serif;
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: var(--text);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-2);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+        .nav-cta {
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            background: linear-gradient(135deg, var(--accent), #8a6414);
+            color: white !important;
+            font-weight: 600;
+            font-size: 0.82rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .nav-cta:hover { transform: translateY(-1px); box-shadow: 0 4px 20px var(--accent-glow); text-decoration: none !important; }
+
+        .lang-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.3rem 0.65rem;
+            border-radius: 9999px;
+            background: var(--surface);
+            border: 1px solid var(--glass-border);
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-2);
+            transition: border-color 0.2s;
+            text-decoration: none !important;
+        }
+
+        .lang-toggle:hover { border-color: var(--accent); color: var(--text); text-decoration: none !important; }
+        .lang-toggle .flag { font-size: 1rem; line-height: 1; }
+
+        .mobile-menu-btn {
+            display: none;
+            width: 36px; height: 36px;
+            background: none; border: none;
+            cursor: pointer; color: var(--text);
+        }
+
+        .mobile-menu-btn svg { width: 22px; height: 22px; }
+
+        /* ===== HERO ===== */
+        .hero {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 7rem 2rem 4rem;
+            overflow: hidden;
+        }
+
+        #hero-canvas {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
+
+        .hero-overlay {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse 70% 50% at 50% 45%, transparent 0%, var(--void) 80%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+            max-width: 800px;
+        }
+
+        .hero-partners {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            opacity: 0;
+        }
+
+        .partner-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 0.75rem;
+            border-radius: 9999px;
+            background: var(--surface);
+            border: 1px solid rgba(255, 245, 220, 0.12);
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-2);
+            letter-spacing: 0.03em;
+        }
+
+        .partner-badge svg { width: 14px; height: 14px; }
+        .partner-badge img { width: 16px; height: 16px; object-fit: contain; filter: grayscale(1) brightness(1.5); opacity: 0.7; }
+        .partner-badge .logo-text-icon { font-weight: 800; font-size: 11px; line-height: 1; color: var(--text-3); }
+
+        .hero h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(2.5rem, 6vw, 4.5rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            opacity: 0;
+        }
+
+        .hero h1 em {
+            font-style: italic;
+            background: linear-gradient(135deg, var(--accent-2), #e8c882, var(--accent));
+            background-size: 200% 100%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmer 4s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .hero-tagline {
+            font-size: clamp(1rem, 2vw, 1.25rem);
+            color: var(--text-2);
+            max-width: 560px;
+            margin: 0 auto 2.5rem;
+            line-height: 1.7;
+            opacity: 0;
+        }
+
+        .hero-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 3rem;
+            opacity: 0;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.75rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: all 0.25s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn svg { width: 18px; height: 18px; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #8a6414);
+            color: white;
+            box-shadow: 0 4px 24px var(--accent-glow);
+        }
+
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(124, 106, 255, 0.3); text-decoration: none; }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--glass-border);
+        }
+
+        .btn-secondary:hover { border-color: rgba(124, 106, 255, 0.3); transform: translateY(-2px); text-decoration: none; }
+
+        .hero-stats {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3rem;
+            opacity: 0;
+        }
+
+        .hero-stat-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-2);
+        }
+
+        .hero-stat-lbl {
+            font-size: 0.7rem;
+            color: var(--text-3);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        /* ===== FEATURES SECTION ===== */
+        .features-section {
+            padding: 6rem 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 3.5rem;
+        }
+
+        .section-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent-2);
+            margin-bottom: 0.75rem;
+        }
+
+        .section-title {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(1.8rem, 3.5vw, 2.5rem);
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+        }
+
+        .section-desc {
+            font-size: 1rem;
+            color: var(--text-2);
+            max-width: 560px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.25rem;
+        }
+
+        .feat-card {
+            background: var(--surface);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            padding: 1.75rem;
+            transition: border-color 0.3s, transform 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .feat-card:hover { border-color: rgba(124, 106, 255, 0.2); transform: translateY(-4px); }
+        .feat-card:hover::before { opacity: 1; }
+
+        .feat-icon {
+            width: 40px; height: 40px;
+            border-radius: var(--radius-sm);
+            background: var(--accent-glow);
+            display: grid; place-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .feat-icon svg { width: 20px; height: 20px; color: var(--accent-2); }
+
+        .feat-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
+        .feat-card p { font-size: 0.85rem; color: var(--text-3); margin: 0; line-height: 1.6; }
+
+        .feat-badge {
+            position: absolute;
+            top: 1rem; right: 1rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #8a6414);
+            color: white;
+            letter-spacing: 0.04em;
+        }
+
+        /* ===== PIPELINE ===== */
+        .pipeline-section {
+            padding: 5rem 2rem;
+            border-top: 1px solid var(--glass-border);
+            border-bottom: 1px solid var(--glass-border);
+            background: var(--obsidian);
+        }
+
+        .pipeline-inner {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .pipeline {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0;
+            margin: 2.5rem 0;
+            position: relative;
+        }
+
+        .pipeline::before {
+            content: '';
+            position: absolute;
+            top: 38px;
+            left: 12.5%;
+            right: 12.5%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--jade), var(--sky));
+            border-radius: 2px;
+        }
+
+        .pipe-step {
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .pipe-dot {
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin: 30px auto 1rem;
+            box-shadow: 0 0 16px var(--accent-glow);
+            position: relative;
+        }
+
+        .pipe-step:nth-child(2) .pipe-dot { background: var(--accent-2); box-shadow: 0 0 16px rgba(212, 168, 75, 0.3); }
+        .pipe-step:nth-child(3) .pipe-dot { background: var(--jade); box-shadow: 0 0 16px rgba(122, 154, 109, 0.3); }
+        .pipe-step:nth-child(4) .pipe-dot { background: var(--sky); box-shadow: 0 0 16px rgba(138, 171, 189, 0.3); }
+
+        .pipe-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem;
+            color: var(--text-3);
+            margin-bottom: 0.25rem;
+        }
+
+        .pipe-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; }
+        .pipe-desc { font-size: 0.72rem; color: var(--text-3); line-height: 1.5; padding: 0 0.5rem; }
+
+        /* ===== HOW TO USE ===== */
+        .howto-section {
+            padding: 6rem 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .howto-step {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            padding: 1.75rem;
+            background: var(--surface);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            transition: border-color 0.3s;
+        }
+
+        .howto-step:hover { border-color: rgba(124, 106, 255, 0.15); }
+
+        .howto-num {
+            width: 42px; height: 42px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), #8a6414);
+            display: grid; place-items: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .howto-content h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.4rem; }
+        .howto-content p { font-size: 0.88rem; color: var(--text-2); margin: 0; }
+
+        /* ===== SHORTCUTS SECTION ===== */
+        .shortcuts-section {
+            padding: 4rem 2rem;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .shortcut-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.6rem;
+        }
+
+        .shortcut-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.7rem 1rem;
+            background: var(--surface);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            color: var(--text-2);
+        }
+
+        kbd {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            padding: 0.2rem 0.55rem;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text);
+            background: linear-gradient(180deg, var(--surface-2), var(--surface));
+            border: 1px solid var(--glass-border);
+            border-bottom-width: 3px;
+            border-bottom-color: rgba(0,0,0,0.4);
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 var(--glass-shine);
+            line-height: 1.4;
+        }
+
+        /* ===== CODE ===== */
+        pre {
+            background: var(--obsidian);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-sm);
+            padding: 1.15rem 1.25rem;
+            overflow-x: auto;
+            margin: 0.75rem 0 1rem;
+            position: relative;
+        }
+
+        pre::before {
+            content: 'terminal';
+            position: absolute;
+            top: 0; right: 0;
+            padding: 0.2rem 0.6rem;
+            font-size: 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-3);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            background: var(--surface);
+            border-bottom-left-radius: var(--radius-xs);
+            border-top-right-radius: var(--radius-sm);
+        }
+
+        pre code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            line-height: 1.7;
+            color: var(--text-2);
+        }
+
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82em;
+            background: rgba(124, 106, 255, 0.1);
+            color: var(--accent-2);
+            padding: 0.15rem 0.4rem;
+            border-radius: var(--radius-xs);
+        }
+
+        /* ===== MANUAL SECTION ===== */
+        .manual-section {
+            padding: 5rem 2rem;
+            border-top: 1px solid var(--glass-border);
+        }
+
+        .manual-inner {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .manual-card {
+            background: var(--surface);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius);
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .manual-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+        }
+
+        .manual-card h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .m-icon {
+            width: 34px; height: 34px;
+            border-radius: var(--radius-sm);
+            background: var(--accent-glow);
+            display: grid; place-items: center;
+            flex-shrink: 0;
+        }
+
+        .m-icon svg { width: 17px; height: 17px; color: var(--accent-2); }
+
+        .manual-card h3 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.6rem; color: var(--text); }
+        .manual-card h3:first-child { margin-top: 0; }
+        .manual-card p { margin-bottom: 0.85rem; color: var(--text-2); }
+        .manual-card ul, .manual-card ol { margin-left: 1.1rem; margin-bottom: 0.85rem; color: var(--text-2); }
+        .manual-card li { margin-bottom: 0.4rem; }
+        .manual-card li strong { color: var(--text); }
+
+        .callout {
+            display: flex;
+            gap: 0.7rem;
+            padding: 0.9rem 1rem;
+            border-radius: var(--radius-sm);
+            margin: 1rem 0;
+            border: 1px solid;
+        }
+
+        .callout-icon { flex-shrink: 0; width: 18px; height: 18px; margin-top: 1px; }
+        .callout-title { font-weight: 600; font-size: 0.82rem; margin-bottom: 0.15rem; }
+        .callout-text { font-size: 0.82rem; margin: 0; color: var(--text-2); }
+
+        .callout-tip { background: rgba(52, 211, 153, 0.06); border-color: rgba(52, 211, 153, 0.15); }
+        .callout-tip .callout-icon, .callout-tip .callout-title { color: var(--jade); }
+
+        .callout-warning { background: rgba(251, 191, 36, 0.06); border-color: rgba(251, 191, 36, 0.15); }
+        .callout-warning .callout-icon, .callout-warning .callout-title { color: var(--gold); }
+
+        .callout-info { background: var(--accent-glow-2); border-color: rgba(124, 106, 255, 0.15); }
+        .callout-info .callout-icon, .callout-info .callout-title { color: var(--accent-2); }
+
+        .status-list { list-style: none; margin-left: 0 !important; }
+        .status-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.8rem; background: var(--obsidian); border-radius: var(--radius-xs); margin-bottom: 0.35rem; font-size: 0.88rem; }
+        .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+        .status-dot.unread { background: var(--text-3); }
+        .status-dot.want { background: var(--gold); }
+        .status-dot.reading { background: var(--sky); }
+        .status-dot.finished { background: var(--jade); }
+        .status-dot.abandoned { background: var(--ember); }
+        .status-label { color: var(--text-3); font-size: 0.8rem; }
+
+        .edge-list { list-style: none; margin-left: 0 !important; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.45rem; }
+        .edge-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.7rem; background: var(--obsidian); border-radius: var(--radius-xs); font-size: 0.82rem; }
+        .edge-color { width: 18px; height: 3px; border-radius: 2px; }
+
+        /* ===== FOOTER ===== */
+        footer {
+            border-top: 1px solid var(--glass-border);
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+
+        .footer-inner { max-width: 600px; margin: 0 auto; }
+
+        .footer-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .footer-logo-icon {
+            width: 28px; height: 28px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, var(--accent), #8a6414);
+            display: grid; place-items: center;
+        }
+
+        .footer-logo-icon svg { width: 14px; height: 14px; color: white; }
+
+        .footer-logo-text {
+            font-family: 'Playfair Display', serif;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text);
+        }
+
+        .footer-links {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .footer-links a { font-size: 0.82rem; color: var(--text-3); }
+        .footer-links a:hover { color: var(--accent-2); text-decoration: none; }
+
+        .footer-copy { font-size: 0.75rem; color: var(--text-3); }
+
+        /* ===== GSAP ===== */
+        .gs { opacity: 0; transform: translateY(30px); }
+
+        /* ===== MOBILE ===== */
+        @media (max-width: 860px) {
+            .nav-links { display: none; }
+            .mobile-menu-btn { display: block; }
+            .hero { padding: 6rem 1.5rem 3rem; min-height: auto; }
+            .hero h1 { font-size: 2.2rem; }
+            .hero-actions { flex-direction: column; }
+            .hero-stats { gap: 1.5rem; flex-wrap: wrap; }
+            .features-grid { grid-template-columns: 1fr; }
+            .pipeline { grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+            .pipeline::before { display: none; }
+            .shortcut-grid { grid-template-columns: 1fr; }
+            .howto-step { flex-direction: column; gap: 0.75rem; }
+            .edge-list { grid-template-columns: 1fr; }
+            .hero-partners { flex-wrap: wrap; gap: 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== TOP NAV ===== -->
+    <nav class="topnav" id="topnav">
+        <a href="#" class="nav-logo">
+            <div class="nav-logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+            <span class="nav-logo-text">EpubGraph</span>
+        </a>
+        <ul class="nav-links">
+            <li><a href="#features" data-i18n="nav.features">Funciones</a></li>
+            <li><a href="#how-it-works" data-i18n="nav.how">Como Funciona</a></li>
+            <li><a href="#manual" data-i18n="nav.manual">Manual</a></li>
+            <li><a href="about.html" data-i18n="nav.about">Acerca de</a></li>
+            <li><a href="#download" class="nav-cta" data-i18n="nav.download">Descargar</a></li>
+            <li><a href="javascript:void(0)" class="lang-toggle" onclick="toggleLang()"><span class="flag" id="lang-flag">&#x1F1EC;&#x1F1E7;</span> <span id="lang-label">EN</span></a></li>
+        </ul>
+        <button class="mobile-menu-btn" onclick="document.querySelector('.nav-links').classList.toggle('show')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+    </nav>
+
+    <!-- ===== HERO ===== -->
+    <section class="hero" id="download">
+        <canvas id="hero-canvas"></canvas>
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <div class="hero-partners">
+                <div class="partner-badge">
+                    <!-- OSI Open Source keyhole logo -->
+                    <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="M128 8C60.6 8 8 60.6 8 128c0 49.6 29.7 92.3 72.2 111.2l20.8-64.1C90.5 169.1 83 149.6 83 128c0-24.9 20.1-45 45-45s45 20.1 45 45c0 21.6-7.5 41.1-18 47.1l20.8 64.1C218.3 220.3 248 177.6 248 128 248 60.6 195.4 8 128 8z"/></svg>
+                    <span data-i18n="badge.opensource">Codigo Abierto</span>
+                </div>
+                <div class="partner-badge">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/3/31/Ollama-logo.svg" alt="Ollama" width="16" height="16" style="filter:brightness(2);opacity:.8">
+                    <span data-i18n="badge.ollama">Impulsado por Ollama</span>
+                </div>
+                <div class="partner-badge">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/a/aa/Calibre_logo_SVG_version.svg" alt="Calibre" width="16" height="16" style="filter:grayscale(1) brightness(1.8);opacity:.7">
+                    <span data-i18n="badge.calibre">Compatible con Calibre</span>
+                </div>
+            </div>
+
+            <h1 data-i18n="hero.title" data-i18n-html="true">La vida es corta.<br>Encuentra tu <em>proxima gran lectura</em>.</h1>
+
+            <p class="hero-tagline" data-i18n="hero.tagline">Tu biblioteca contiene miles de libros. EpubGraph mapea las conexiones ocultas entre ellos usando embeddings neuronales, para que tu proxima lectura perfecta aparezca sola.</p>
+
+            <div class="hero-actions">
+                <a href="#" class="btn btn-primary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 1 7.38 16.75l.22.22A1 1 0 0 1 19 20.5h-1.13a8 8 0 1 0-3.09 1.34A1 1 0 0 1 16 23h-4a10 10 0 0 1 0-21z"/></svg>
+                    <span data-i18n="hero.mac">Descargar para Mac</span>
+                </a>
+                <a href="#" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+                    <span data-i18n="hero.win">Descargar para Windows</span>
+                </a>
+            </div>
+
+            <div class="hero-stats">
+                <div><div class="hero-stat-val">8B</div><div class="hero-stat-lbl" data-i18n="stat.model">Modelo de Parametros</div></div>
+                <div><div class="hero-stat-val">2048</div><div class="hero-stat-lbl" data-i18n="stat.dims">Dimensiones</div></div>
+                <div><div class="hero-stat-val">70K+</div><div class="hero-stat-lbl" data-i18n="stat.books">Libros Probados</div></div>
+                <div><div class="hero-stat-val">100%</div><div class="hero-stat-lbl" data-i18n="stat.local">Local y Privado</div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== FEATURES ===== -->
+    <section class="features-section" id="features">
+        <div class="section-header">
+            <div class="section-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <span data-i18n="feat.label">Funciones</span>
+            </div>
+            <h2 class="section-title" data-i18n="feat.title">La inteligencia se encuentra con tu estanteria</h2>
+            <p class="section-desc" data-i18n="feat.desc">Cada funcion esta disenada para ayudarte a navegar grandes bibliotecas con la misma facilidad que una coleccion personal pequena.</p>
+        </div>
+
+        <div class="features-grid">
+            <div class="feat-card gs">
+                <span class="feat-badge" data-i18n="feat.upgraded">Mejorado</span>
+                <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/><path d="m4.22 4.22 4.24 4.24m3.08 3.08 4.24 4.24"/><path d="M1 12h6m6 0h10"/><path d="m4.22 19.78 4.24-4.24m3.08-3.08 4.24-4.24"/></svg></div>
+                <h3 data-i18n="feat.embed.t">Embeddings Neuronales</h3>
+                <p data-i18n="feat.embed.d">Modelo de 8B parametros genera vectores semanticos de 2048 dimensiones via truncamiento MRL. Cada libro recibe un resumen generado por IA que captura temas, tono y estilo.</p>
+            </div>
+            <div class="feat-card gs">
+                <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
+                <h3 data-i18n="feat.rec.t">Recomendaciones Inteligentes</h3>
+                <p data-i18n="feat.rec.d">Algoritmo hibrido que combina similitud de contenido, relaciones de autor, conexiones de serie y tus valoraciones con diversidad MMR para descubrir lecturas genuinamente nuevas.</p>
+            </div>
+            <div class="feat-card gs">
+                <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></div>
+                <h3 data-i18n="feat.graph.t">Grafo de Libros</h3>
+                <p data-i18n="feat.graph.d">Visualizacion interactiva de red dirigida por fuerzas. Ve como cada libro se conecta a traves de similitud de contenido, autores compartidos, series y etiquetas.</p>
+            </div>
+            <div class="feat-card gs">
+                <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+                <h3 data-i18n="feat.shelf.t">Estanteria 3D</h3>
+                <p data-i18n="feat.shelf.d">Tu cola de lectura renderizada como una estanteria 3D con WebGL, iluminacion realista, texturas de lomo y animaciones suaves al pasar el raton.</p>
+            </div>
+            <div class="feat-card gs">
+                <span class="feat-badge" data-i18n="feat.new">Nuevo</span>
+                <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg></div>
+                <h3 data-i18n="feat.hide.t">Ocultar y Eliminar</h3>
+                <p data-i18n="feat.hide.d">Oculta libros que no quieres ver (pulsa <kbd>H</kbd>), elimina a la Papelera (pulsa <kbd>Del</kbd>), u opera en lote sobre autores completos con clic derecho.</p>
+            </div>
+            <div class="feat-card gs">
+                <div class="feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+                <h3 data-i18n="feat.local.t">100% Local</h3>
+                <p data-i18n="feat.local.d">Todo se ejecuta en tu maquina. Sin nube, sin telemetria, sin cuentas. Tus libros y datos nunca salen de tu dispositivo. Ollama maneja toda la inferencia de IA localmente.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== PIPELINE ===== -->
+    <section class="pipeline-section" id="how-it-works">
+        <div class="pipeline-inner">
+            <div class="section-header">
+                <div class="section-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v10"/></svg>
+                    <span data-i18n="pipe.label">Como Funciona</span>
+                </div>
+                <h2 class="section-title" data-i18n="pipe.title">Pipeline Resumen-luego-Embedding</h2>
+                <p class="section-desc" data-i18n="pipe.desc">Cada libro pasa por un pipeline de inteligencia de cuatro etapas que produce embeddings semanticamente ricos.</p>
+            </div>
+
+            <div class="pipeline">
+                <div class="pipe-step gs"><div class="pipe-dot"></div><div class="pipe-num">01</div><div class="pipe-title" data-i18n="pipe.1.t">Extraer</div><div class="pipe-desc" data-i18n="pipe.1.d">Titulo, autor, temas, capitulos y descripcion de los metadatos EPUB</div></div>
+                <div class="pipe-step gs"><div class="pipe-dot"></div><div class="pipe-num">02</div><div class="pipe-title" data-i18n="pipe.2.t">Resumir</div><div class="pipe-desc" data-i18n="pipe.2.d">El LLM genera un resumen semantico de ~200 palabras capturando temas y estilo</div></div>
+                <div class="pipe-step gs"><div class="pipe-dot"></div><div class="pipe-num">03</div><div class="pipe-title" data-i18n="pipe.3.t">Embedding</div><div class="pipe-desc" data-i18n="pipe.3.d">qwen3-embedding:8b codifica a vector de 2048 dimensiones con normalizacion L2</div></div>
+                <div class="pipe-step gs"><div class="pipe-dot"></div><div class="pipe-num">04</div><div class="pipe-title" data-i18n="pipe.4.t">Conectar</div><div class="pipe-desc" data-i18n="pipe.4.d">La similitud coseno construye aristas ponderadas del grafo entre libros relacionados</div></div>
+            </div>
+
+            <div style="max-width:600px;margin:0 auto">
+                <pre><code># Instalar el motor de IA
+brew install ollama
+
+# Descargar los modelos necesarios
+ollama pull qwen3-embedding:8b    # Embeddings
+ollama pull mistral:7b             # Resumenes
+
+# Iniciar el servidor
+ollama serve</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== HOW TO USE ===== -->
+    <section class="howto-section">
+        <div class="section-header">
+            <div class="section-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span data-i18n="qs.label">Inicio Rapido</span>
+            </div>
+            <h2 class="section-title" data-i18n="qs.title">Funcionando en minutos</h2>
+        </div>
+
+        <div class="howto-step gs">
+            <div class="howto-num">1</div>
+            <div class="howto-content">
+                <h3 data-i18n="qs.1.t">Agrega tu Biblioteca</h3>
+                <p data-i18n="qs.1.d">Apunta EpubGraph a tus carpetas de ebooks. Las bibliotecas de Calibre se detectan automaticamente. Todos los metadatos, portadas, temas y titulos de capitulos se extraen automaticamente.</p>
+            </div>
+        </div>
+        <div class="howto-step gs">
+            <div class="howto-num">2</div>
+            <div class="howto-content">
+                <h3 data-i18n="qs.2.t">Deja que la IA Procese</h3>
+                <p data-i18n="qs.2.d">Con Ollama ejecutandose, EpubGraph genera resumenes y embeddings en segundo plano. Seguro para pausar &mdash; cierra la app en cualquier momento y retoma donde se quedo.</p>
+            </div>
+        </div>
+        <div class="howto-step gs">
+            <div class="howto-num">3</div>
+            <div class="howto-content">
+                <h3 data-i18n="qs.3.t">Explora y Descubre</h3>
+                <p data-i18n="qs.3.d">Navega la pagina Descubrir para recomendaciones personalizadas, explora el Grafo de Libros para ver conexiones, o cuida tu cola de lectura en la estanteria 3D.</p>
+            </div>
+        </div>
+        <div class="howto-step gs">
+            <div class="howto-num">4</div>
+            <div class="howto-content">
+                <h3 data-i18n="qs.4.t">Valora y Refina</h3>
+                <p data-i18n="qs.4.d">Valora libros y marca el estado de lectura. Tus preferencias retroalimentan el motor de recomendaciones, haciendo cada sugerencia mas personalizada con el tiempo.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="shortcuts-section">
+        <div class="section-header">
+            <div class="section-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z"/></svg>
+                <span data-i18n="kb.label">Atajos de Teclado</span>
+            </div>
+            <h2 class="section-title" data-i18n="kb.title">Controles avanzados</h2>
+        </div>
+
+        <div class="shortcut-grid">
+            <div class="shortcut-item"><span data-i18n="kb.hide">Ocultar / Mostrar libro</span> <kbd>H</kbd></div>
+            <div class="shortcut-item"><span data-i18n="kb.del">Eliminar libro</span> <kbd>Delete</kbd></div>
+            <div class="shortcut-item"><span data-i18n="kb.search">Buscar en biblioteca</span> <kbd>Cmd</kbd> + <kbd>K</kbd></div>
+            <div class="shortcut-item"><span data-i18n="kb.open">Abrir libro seleccionado</span> <kbd>Enter</kbd></div>
+        </div>
+    </section>
+
+    <!-- ===== FULL MANUAL ===== -->
+    <section class="manual-section" id="manual">
+        <div class="manual-inner">
+            <div class="section-header">
+                <div class="section-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                    <span data-i18n="man.label">Manual de Usuario</span>
+                </div>
+                <h2 class="section-title" data-i18n="man.title">Guia de referencia completa</h2>
+                <p class="section-desc" data-i18n="man.desc">Todo lo que necesitas saber sobre EpubGraph, desde la gestion de bibliotecas hasta la configuracion avanzada de IA.</p>
+            </div>
+
+            <!-- Library Management -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span> <span data-i18n="m.lib.h">Gestion de Bibliotecas</span></h2>
+                <h3 data-i18n="m.lib.add">Agregar Bibliotecas</h3>
+                <p data-i18n="m.lib.add.d">Agrega multiples carpetas de biblioteca via Ajustes. Haz clic en el icono de actualizar para re-escanear libros nuevos o modificados. EpubGraph preserva tus valoraciones, estado de lectura y libros ocultos entre escaneos.</p>
+                <h3 data-i18n="m.lib.meta">Extraccion de Metadatos</h3>
+                <p data-i18n="m.lib.meta.d">Durante el escaneo, EpubGraph extrae metadatos ricos de cada EPUB:</p>
+                <ul>
+                    <li><strong data-i18n="m.lib.core">Basico:</strong> <span data-i18n="m.lib.core.d">titulo, autor, serie, editorial, descripcion, idioma, ISBN</span></li>
+                    <li><strong data-i18n="m.lib.subj">Temas:</strong> <span data-i18n="m.lib.subj.d">elementos <code>dc:subject</code> del OPF (genero, temas, encabezamientos LoC)</span></li>
+                    <li><strong data-i18n="m.lib.chap">Capitulos:</strong> <span data-i18n="m.lib.chap.d">extraidos del TOC del EPUB, incluyendo secciones anidadas</span></li>
+                    <li><strong data-i18n="m.lib.cov">Portadas:</strong> <span data-i18n="m.lib.cov.d">auto-extraidas y almacenadas localmente</span></li>
+                </ul>
+                <h3 data-i18n="m.lib.cal">Importacion de Calibre</h3>
+                <p data-i18n="m.lib.cal.d">Las carpetas que contienen <code>metadata.db</code> se reconocen automaticamente como bibliotecas de Calibre. Todos los metadatos, valoraciones (convertidas a escala 1-5), etiquetas y portadas se importan de forma no destructiva.</p>
+                <div class="callout callout-tip">
+                    <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    <div><div class="callout-title" data-i18n="m.lib.tip.t">Almacenamiento por Punteros</div><p class="callout-text" data-i18n="m.lib.tip.d">EpubGraph nunca copia ni modifica tus archivos. Crea punteros a sus ubicaciones existentes.</p></div>
+                </div>
+            </div>
+
+            <!-- Browsing & Managing -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span> <span data-i18n="m.br.h">Navegacion y Gestion</span></h2>
+                <h3 data-i18n="m.br.view">Vista de Biblioteca</h3>
+                <p data-i18n="m.br.view.d">La vista principal muestra libros en una cuadricula virtualizada y responsiva. Ordena por titulo, autor, fecha, valoracion, serie, fecha de publicacion o aleatorio. La busqueda usa FTS5 con ranking ponderado.</p>
+                <h3 data-i18n="m.br.menu">Menu de Clic Derecho</h3>
+                <ul>
+                    <li><strong data-i18n="m.br.m1">Agregar/Quitar de Siguiente</strong></li>
+                    <li><strong data-i18n="m.br.m2">Abrir Libro</strong> &mdash; <span data-i18n="m.br.m2d">abre en tu lector EPUB predeterminado</span></li>
+                    <li><strong data-i18n="m.br.m3">Ver Detalles</strong> &mdash; <span data-i18n="m.br.m3d">abre la barra lateral de detalles</span></li>
+                    <li><strong data-i18n="m.br.m4">Ocultar / Mostrar Libro</strong> <kbd>H</kbd></li>
+                    <li><strong data-i18n="m.br.m5">Eliminar Libro</strong> <kbd>Del</kbd> &mdash; <span data-i18n="m.br.m5d">envia a la Papelera con deteccion de carpeta</span></li>
+                    <li><strong data-i18n="m.br.m6">Ocultar/Eliminar Todo por Autor</strong> &mdash; <span data-i18n="m.br.m6d">operaciones en lote</span></li>
+                </ul>
+                <h3 data-i18n="m.br.hd">Ocultar y Eliminar</h3>
+                <p data-i18n="m.br.hd.d">Los libros ocultos se excluyen de recomendaciones, grafo y vista de biblioteca (activa el icono de ojo "Mostrar Ocultos" para revelarlos). Eliminar envia archivos a la Papelera del SO. Para carpetas de libros Calibre, se te pregunta si eliminar la carpeta o solo el EPUB.</p>
+                <div class="callout callout-warning">
+                    <svg class="callout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <div><div class="callout-title" data-i18n="m.br.warn.t">Eliminacion Recuperable</div><p class="callout-text" data-i18n="m.br.warn.d">Los archivos se envian a la Papelera del SO, no se eliminan permanentemente. Restaura desde la Papelera de tu sistema si es necesario.</p></div>
+                </div>
+            </div>
+
+            <!-- Ratings & Status -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span> <span data-i18n="m.rat.h">Valoraciones y Estado de Lectura</span></h2>
+                <p data-i18n="m.rat.d">Valora libros de 1-5 estrellas. Los libros con 4+ se convierten en semillas de recomendacion. El estado de lectura registra tu progreso:</p>
+                <ul class="status-list">
+                    <li class="status-item"><span class="status-dot unread"></span><div><strong data-i18n="m.rat.unread">Sin leer</strong> <span class="status-label" data-i18n="m.rat.unread.d">&mdash; estado predeterminado</span></div></li>
+                    <li class="status-item"><span class="status-dot want"></span><div><strong data-i18n="m.rat.want">Quiero Leer</strong> <span class="status-label" data-i18n="m.rat.want.d">&mdash; se agrega automaticamente a Siguiente</span></div></li>
+                    <li class="status-item"><span class="status-dot reading"></span><div><strong data-i18n="m.rat.reading">Leyendo</strong> <span class="status-label" data-i18n="m.rat.reading.d">&mdash; en progreso</span></div></li>
+                    <li class="status-item"><span class="status-dot finished"></span><div><strong data-i18n="m.rat.finished">Terminado</strong> <span class="status-label" data-i18n="m.rat.finished.d">&mdash; excluido de recomendaciones</span></div></li>
+                    <li class="status-item"><span class="status-dot abandoned"></span><div><strong data-i18n="m.rat.abandoned">Abandonado</strong> <span class="status-label" data-i18n="m.rat.abandoned.d">&mdash; excluido de recomendaciones</span></div></li>
+                </ul>
+            </div>
+
+            <!-- Graph -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></span> <span data-i18n="m.gr.h">Grafo de Libros</span></h2>
+                <p data-i18n="m.gr.d">Visualizacion de red dirigida por fuerzas usando Sigma.js. Selecciona un libro central, ajusta profundidad (1-3 saltos) y nodos maximos. Los libros ocultos se excluyen automaticamente.</p>
+                <h3 data-i18n="m.gr.edge">Tipos de Aristas</h3>
+                <ul class="edge-list">
+                    <li class="edge-item"><span class="edge-color" style="background:#38bdf8"></span><strong data-i18n="m.gr.blue">Azul</strong> &mdash; <span data-i18n="m.gr.blue.d">Similitud de contenido</span></li>
+                    <li class="edge-item"><span class="edge-color" style="background:#34d399"></span><strong data-i18n="m.gr.green">Verde</strong> &mdash; <span data-i18n="m.gr.green.d">Mismo autor</span></li>
+                    <li class="edge-item"><span class="edge-color" style="background:#fbbf24"></span><strong data-i18n="m.gr.amber">Ambar</strong> &mdash; <span data-i18n="m.gr.amber.d">Misma serie</span></li>
+                    <li class="edge-item"><span class="edge-color" style="background:#a78bfa"></span><strong data-i18n="m.gr.purple">Purpura</strong> &mdash; <span data-i18n="m.gr.purple.d">Etiquetas compartidas</span></li>
+                </ul>
+            </div>
+
+            <!-- Backup -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span> <span data-i18n="m.bk.h">Respaldo y Exportacion</span></h2>
+                <p data-i18n="m.bk.full" data-i18n-html="true"><strong>Respaldo Completo</strong> (recomendado): Ajustes &rarr; "Crear Respaldo" guarda la <code>library.db</code> completa incluyendo metadatos, valoraciones, embeddings, aristas del grafo, resumenes y estados ocultos.</p>
+                <p data-i18n="m.bk.json" data-i18n-html="true"><strong>Exportacion JSON</strong>: Ajustes &rarr; "Exportar Biblioteca" guarda metadatos y valoraciones como JSON portable. Los embeddings no se incluyen &mdash; se regeneraran al importar.</p>
+            </div>
+
+            <!-- Settings -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.26.68.94 1.13 1.69 1.13H21a2 2 0 0 1 0 4h-.09c-.75 0-1.43.45-1.69 1.13z"/></svg></span> <span data-i18n="m.set.h">Ajustes</span></h2>
+                <ul>
+                    <li><strong data-i18n="m.set.ep">Endpoint de Ollama:</strong> <code>http://localhost:11434</code> <span data-i18n="m.set.def">(predeterminado)</span></li>
+                    <li><strong data-i18n="m.set.em">Modelo de Embedding:</strong> <code>qwen3-embedding:8b</code> (2048-dim)</li>
+                    <li><strong data-i18n="m.set.cm">Modelo de Chat:</strong> <code>mistral:7b</code> <span data-i18n="m.set.cm.d">(generacion de resumenes)</span></li>
+                    <li><strong data-i18n="m.set.bs">Tamano de Lote:</strong> <span data-i18n="m.set.bs.d">libros por ciclo de procesamiento (predeterminado: 10)</span></li>
+                    <li><strong data-i18n="m.set.as">Auto-escaneo:</strong> <span data-i18n="m.set.as.d">revisa periodicamente nuevos libros</span></li>
+                </ul>
+            </div>
+
+            <!-- Troubleshooting -->
+            <div class="manual-card gs">
+                <h2><span class="m-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> <span data-i18n="m.ts.h">Solucion de Problemas</span></h2>
+                <h3 data-i18n="m.ts.nobooks">Libros No Aparecen</h3>
+                <ul>
+                    <li data-i18n="m.ts.nb1">Revisa el interruptor "Mostrar Ocultos" &mdash; pueden estar ocultos</li>
+                    <li data-i18n="m.ts.nb2">Asegurate de que los archivos tengan extension <code>.epub</code></li>
+                    <li data-i18n="m.ts.nb3">Re-escanea la biblioteca; verifica que la ruta de la carpeta sea accesible</li>
+                </ul>
+                <h3 data-i18n="m.ts.ollama">Problemas con Ollama</h3>
+                <ul>
+                    <li data-i18n="m.ts.ol1">Verifica que este ejecutandose: <code>ollama serve</code></li>
+                    <li data-i18n="m.ts.ol2">Descarga modelos: <code>ollama pull qwen3-embedding:8b</code></li>
+                    <li data-i18n="m.ts.ol3">Sin modelo de chat, los resumenes se omiten (se usa metadatos crudos como respaldo)</li>
+                </ul>
+                <h3 data-i18n="m.ts.perf">Rendimiento</h3>
+                <ul>
+                    <li data-i18n="m.ts.p1">Embedding: ~2-5s por libro con modelo de chat; usa Pausar en Ajustes durante uso intensivo</li>
+                    <li data-i18n="m.ts.p2">Grafo: reduce nodos maximos para vistas grandes (&gt;100)</li>
+                    <li data-i18n="m.ts.p3">La estanteria 3D requiere WebGL</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== FOOTER ===== -->
+    <footer>
+        <div class="footer-inner">
+            <div class="footer-logo">
+                <div class="footer-logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                </div>
+                <span class="footer-logo-text">EpubGraph</span>
+            </div>
+            <div class="footer-links">
+                <a href="about.html" data-i18n="nav.about">Acerca de</a>
+                <a href="license.html" data-i18n="ft.license">Licencia</a>
+                <a href="terms.html" data-i18n="ft.terms">Terminos</a>
+                <a href="#manual" data-i18n="nav.manual">Manual</a>
+            </div>
+            <p class="footer-copy" data-i18n="ft.copy">&copy; 2025-2026 Paolo Grimaldi. Creado con Tauri, Svelte, Rust e IA.</p>
+        </div>
+    </footer>
+
+    <script>
+    // ===== THREE.JS HERO =====
+    (function() {
+        const canvas = document.getElementById('hero-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+        camera.position.z = 30;
+
+        function resize() {
+            const w = canvas.parentElement.clientWidth;
+            const h = canvas.parentElement.clientHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // Particles: book-like nodes in a neural network
+        const COUNT = 120;
+        const positions = new Float32Array(COUNT * 3);
+        const colors = new Float32Array(COUNT * 3);
+        const sizes = new Float32Array(COUNT);
+        const velocities = [];
+
+        const palette = [
+            new THREE.Color(0xc18d1b), // gold
+            new THREE.Color(0xd4a84b), // amber
+            new THREE.Color(0x8aabbd), // slate blue
+            new THREE.Color(0x7a9a6d), // sage
+            new THREE.Color(0xb87a6e), // terracotta
+        ];
+
+        for (let i = 0; i < COUNT; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 50;
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 35;
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 20;
+
+            const c = palette[Math.floor(Math.random() * palette.length)];
+            colors[i * 3] = c.r;
+            colors[i * 3 + 1] = c.g;
+            colors[i * 3 + 2] = c.b;
+
+            sizes[i] = Math.random() * 3 + 2;
+
+            velocities.push({
+                x: (Math.random() - 0.5) * 0.015,
+                y: (Math.random() - 0.5) * 0.015,
+                z: (Math.random() - 0.5) * 0.008
+            });
+        }
+
+        // Generate book-shaped texture from SVG path
+        function createBookTexture() {
+            const size = 64;
+            const c = document.createElement('canvas');
+            c.width = size; c.height = size;
+            const ctx = c.getContext('2d');
+
+            // Draw the book outline scaled to fit
+            ctx.save();
+            ctx.translate(size * 0.12, size * 0.1);
+            ctx.scale(size / 3200, size / 3200);
+
+            const bookPath = new Path2D('M 1498.699219 2023.316406 L 767.210938 2023.316406 C 760.308594 2023.316406 755.707031 2018.714844 755.707031 2011.816406 L 755.707031 1183.710938 C 755.707031 1176.808594 760.308594 1172.210938 767.210938 1172.210938 L 875.324219 1172.210938 L 875.324219 1004.289062 C 875.324219 999.691406 879.921875 995.089844 884.523438 992.789062 C 930.527344 981.28125 976.53125 976.679688 1027.140625 976.679688 C 1208.859375 976.679688 1379.078125 1038.789062 1498.699219 1149.210938 C 1622.910156 1041.089844 1795.441406 976.679688 1974.859375 976.679688 C 2025.460938 976.679688 2071.46875 981.28125 2117.480469 992.789062 C 2122.078125 995.089844 2126.679688 999.691406 2126.679688 1004.289062 L 2126.679688 1172.210938 L 2234.789062 1172.210938 C 2241.691406 1172.210938 2246.289062 1176.808594 2246.289062 1183.710938 L 2246.289062 2011.8125 C 2246.289062 2018.714844 2241.691406 2023.3125 2234.789062 2023.3125 Z M 1528.601562 2000.308594 L 2223.289062 2000.308594 L 2223.289062 1195.210938 L 2126.679688 1195.210938 L 2126.679688 1846.191406 C 2126.679688 1850.789062 2124.378906 1853.101562 2122.078125 1855.390625 C 2119.78125 1857.699219 2115.179688 1857.699219 2112.878906 1857.699219 C 2069.171875 1848.5 2025.46875 1848.5 1974.859375 1848.5 C 1804.640625 1846.191406 1645.921875 1901.398438 1528.601562 2000.308594 Z M 776.410156 2000.308594 L 1466.488281 2000.308594 C 1353.78125 1903.699219 1190.460938 1848.5 1024.839844 1848.5 C 974.234375 1848.5 930.527344 1848.5 886.820312 1857.699219 C 884.519531 1857.699219 879.921875 1857.699219 877.621094 1855.390625 C 875.320312 1853.089844 873.019531 1850.789062 873.019531 1846.191406 L 873.019531 1195.210938 L 776.410156 1195.210938 Z M 1510.199219 1167.609375 L 1510.199219 1984.210938 C 1632.109375 1880.699219 1797.738281 1823.191406 1974.859375 1823.191406 C 2018.570312 1823.191406 2062.269531 1823.191406 2103.671875 1830.089844 L 2103.671875 1011.191406 C 2062.269531 1001.988281 2020.859375 997.390625 1974.859375 997.390625 C 1797.730469 999.691406 1629.820312 1061.800781 1510.199219 1167.609375 Z M 1027.140625 1823.191406 C 1204.261719 1823.191406 1369.878906 1880.699219 1487.199219 1984.210938 L 1487.199219 1167.609375 C 1372.179688 1059.5 1204.261719 999.691406 1027.140625 999.691406 C 981.136719 999.691406 939.730469 1004.289062 898.324219 1013.488281 L 898.324219 1832.390625 C 939.730469 1823.191406 981.136719 1823.191406 1027.140625 1823.191406');
+
+            ctx.fillStyle = 'white';
+            ctx.fill(bookPath);
+            ctx.restore();
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.needsUpdate = true;
+            return tex;
+        }
+
+        const bookTexture = createBookTexture();
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+        const mat = new THREE.PointsMaterial({
+            size: 3.5,
+            map: bookTexture,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.95,
+            sizeAttenuation: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            alphaTest: 0.01,
+        });
+
+        const points = new THREE.Points(geo, mat);
+        scene.add(points);
+
+        // Connection lines
+        const MAX_DIST = 14;
+        const lineGeo = new THREE.BufferGeometry();
+        const MAX_LINES = 1200;
+        const linePositions = new Float32Array(MAX_LINES * 6);
+        const lineColors = new Float32Array(MAX_LINES * 6);
+        lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+        lineGeo.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
+
+        const lineMat = new THREE.LineBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.5,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+        });
+
+        const lines = new THREE.LineSegments(lineGeo, lineMat);
+        scene.add(lines);
+
+        let mouse = { x: 0, y: 0 };
+        document.addEventListener('mousemove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth - 0.5) * 2;
+            mouse.y = -(e.clientY / window.innerHeight - 0.5) * 2;
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const pos = points.geometry.attributes.position.array;
+
+            for (let i = 0; i < COUNT; i++) {
+                pos[i * 3] += velocities[i].x;
+                pos[i * 3 + 1] += velocities[i].y;
+                pos[i * 3 + 2] += velocities[i].z;
+
+                if (Math.abs(pos[i * 3]) > 25) velocities[i].x *= -1;
+                if (Math.abs(pos[i * 3 + 1]) > 17) velocities[i].y *= -1;
+                if (Math.abs(pos[i * 3 + 2]) > 10) velocities[i].z *= -1;
+            }
+
+            points.geometry.attributes.position.needsUpdate = true;
+
+            // Update lines
+            let lineIdx = 0;
+            for (let i = 0; i < COUNT && lineIdx < MAX_LINES; i++) {
+                for (let j = i + 1; j < COUNT && lineIdx < MAX_LINES; j++) {
+                    const dx = pos[i*3] - pos[j*3];
+                    const dy = pos[i*3+1] - pos[j*3+1];
+                    const dz = pos[i*3+2] - pos[j*3+2];
+                    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+                    if (dist < MAX_DIST) {
+                        const alpha = 1 - dist / MAX_DIST;
+                        const lp = lines.geometry.attributes.position.array;
+                        const lc = lines.geometry.attributes.color.array;
+                        const o = lineIdx * 6;
+
+                        lp[o] = pos[i*3]; lp[o+1] = pos[i*3+1]; lp[o+2] = pos[i*3+2];
+                        lp[o+3] = pos[j*3]; lp[o+4] = pos[j*3+1]; lp[o+5] = pos[j*3+2];
+
+                        const a = alpha * 0.8;
+                        lc[o] = a*0.76; lc[o+1] = a*0.55; lc[o+2] = a*0.11;
+                        lc[o+3] = a*0.76; lc[o+4] = a*0.55; lc[o+5] = a*0.11;
+
+                        lineIdx++;
+                    }
+                }
+            }
+
+            // Clear unused
+            for (let i = lineIdx * 6; i < MAX_LINES * 6; i++) {
+                lines.geometry.attributes.position.array[i] = 0;
+                lines.geometry.attributes.color.array[i] = 0;
+            }
+
+            lines.geometry.attributes.position.needsUpdate = true;
+            lines.geometry.attributes.color.needsUpdate = true;
+            lines.geometry.setDrawRange(0, lineIdx * 2);
+
+            // Subtle camera follow mouse
+            camera.position.x += (mouse.x * 3 - camera.position.x) * 0.02;
+            camera.position.y += (mouse.y * 2 - camera.position.y) * 0.02;
+            camera.lookAt(0, 0, 0);
+
+            points.rotation.y += 0.0005;
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    })();
+
+    // ===== GSAP ANIMATIONS =====
+    gsap.registerPlugin(ScrollTrigger);
+
+    // Hero entrance
+    gsap.to('.hero-partners', { opacity: 1, y: 0, duration: 0.8, delay: 0.3 });
+    gsap.fromTo('.hero h1', { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 1, delay: 0.5 });
+    gsap.fromTo('.hero-tagline', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.8, delay: 0.8 });
+    gsap.fromTo('.hero-actions', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.8, delay: 1.0 });
+    gsap.fromTo('.hero-stats', { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.8, delay: 1.2 });
+
+    // Scroll-triggered sections
+    gsap.utils.toArray('.gs').forEach((el, i) => {
+        gsap.to(el, {
+            opacity: 1,
+            y: 0,
+            duration: 0.7,
+            ease: 'power2.out',
+            scrollTrigger: {
+                trigger: el,
+                start: 'top 85%',
+                once: true
+            }
+        });
+    });
+
+    // Nav scroll effect
+    window.addEventListener('scroll', () => {
+        document.getElementById('topnav').classList.toggle('scrolled', window.scrollY > 50);
+    });
+
+    // ===== i18n ENGINE =====
+    const i18nCache = {};
+    let currentLang = 'es';
+
+    // Store original Spanish text on first load
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        const isHtml = el.getAttribute('data-i18n-html') === 'true';
+        i18nCache[key] = { es: isHtml ? el.innerHTML : el.textContent };
+    });
+
+    const en = {
+        // Nav
+        'nav.features': 'Features',
+        'nav.how': 'How It Works',
+        'nav.manual': 'Manual',
+        'nav.about': 'About',
+        'nav.download': 'Download',
+        // Badges
+        'badge.opensource': 'Open Source',
+        'badge.ollama': 'Ollama Powered',
+        'badge.calibre': 'Calibre Compatible',
+        // Hero
+        'hero.title': 'Life is short.<br>Find your <em>next great read</em>.',
+        'hero.tagline': 'Your library holds thousands of books. EpubGraph maps the hidden connections between them using neural embeddings, so the perfect next read surfaces itself.',
+        'hero.mac': 'Download for Mac',
+        'hero.win': 'Download for Windows',
+        'stat.model': 'Parameter Model',
+        'stat.dims': 'Embedding Dims',
+        'stat.books': 'Books Tested',
+        'stat.local': 'Local & Private',
+        // Features
+        'feat.label': 'Features',
+        'feat.title': 'Intelligence meets your bookshelf',
+        'feat.desc': 'Every feature is designed to help you navigate large libraries with the same ease as a small personal collection.',
+        'feat.upgraded': 'Upgraded',
+        'feat.new': 'New',
+        'feat.embed.t': 'Neural Embeddings',
+        'feat.embed.d': '8B-parameter model generates 2048-dim semantic vectors via MRL truncation. Each book gets an AI-generated summary capturing themes, tone, and style.',
+        'feat.rec.t': 'Smart Recommendations',
+        'feat.rec.d': 'Hybrid algorithm combines content similarity, author relationships, series connections, and your ratings with MMR diversity to surface genuinely novel picks.',
+        'feat.graph.t': 'Book Graph',
+        'feat.graph.d': 'Interactive force-directed network visualization. See how every book connects through content similarity, shared authors, series, and tags.',
+        'feat.shelf.t': '3D Bookshelf',
+        'feat.shelf.d': 'Your reading queue rendered as a WebGL-powered 3D bookshelf with realistic lighting, spine textures, and smooth hover animations.',
+        'feat.hide.t': 'Hide & Delete',
+        'feat.hide.d': 'Hide books you don\'t want to see (press <kbd>H</kbd>), delete to OS Trash (press <kbd>Del</kbd>), or batch-operate on entire authors via right-click.',
+        'feat.local.t': '100% Local',
+        'feat.local.d': 'Everything runs on your machine. No cloud, no telemetry, no accounts. Your books and data never leave your device. Ollama handles all AI inference locally.',
+        // Pipeline
+        'pipe.label': 'How It Works',
+        'pipe.title': 'Summary-then-Embed Pipeline',
+        'pipe.desc': 'Each book goes through a four-stage intelligence pipeline that produces semantically rich embeddings.',
+        'pipe.1.t': 'Extract', 'pipe.1.d': 'Title, author, subjects, chapters, and description from EPUB metadata',
+        'pipe.2.t': 'Summarize', 'pipe.2.d': 'LLM generates a ~200-word semantic summary capturing themes and style',
+        'pipe.3.t': 'Embed', 'pipe.3.d': 'qwen3-embedding:8b encodes to 2048-dim vector with L2 normalization',
+        'pipe.4.t': 'Connect', 'pipe.4.d': 'Cosine similarity builds weighted graph edges between related books',
+        // Quick Start
+        'qs.label': 'Quick Start',
+        'qs.title': 'Up and running in minutes',
+        'qs.1.t': 'Add Your Library', 'qs.1.d': 'Point EpubGraph at your ebook folders. Calibre libraries are auto-detected. All metadata, covers, subjects, and chapter titles are extracted automatically.',
+        'qs.2.t': 'Let the AI Process', 'qs.2.d': 'With Ollama running, EpubGraph generates summaries and embeddings in the background. Pause-safe \u2014 close the app anytime and it resumes where it left off.',
+        'qs.3.t': 'Explore & Discover', 'qs.3.d': 'Browse the Discover page for personalized recommendations, explore the Book Graph to see connections, or curate your reading queue in the 3D bookshelf.',
+        'qs.4.t': 'Rate & Refine', 'qs.4.d': 'Rate books and mark read status. Your preferences feed back into the recommendation engine, making every suggestion more personalized over time.',
+        // Keyboard
+        'kb.label': 'Keyboard Shortcuts',
+        'kb.title': 'Power user controls',
+        'kb.hide': 'Hide / Unhide book',
+        'kb.del': 'Delete book',
+        'kb.search': 'Search library',
+        'kb.open': 'Open selected book',
+        // Manual
+        'man.label': 'User Manual',
+        'man.title': 'Complete reference guide',
+        'man.desc': 'Everything you need to know about EpubGraph, from library management to advanced AI configuration.',
+        // Manual - Library
+        'm.lib.h': 'Library Management',
+        'm.lib.add': 'Adding Libraries',
+        'm.lib.add.d': 'Add multiple library folders via Settings. Click the refresh icon to re-scan for new or changed books. EpubGraph preserves your ratings, read status, and hidden flags between scans.',
+        'm.lib.meta': 'Metadata Extraction',
+        'm.lib.meta.d': 'During scanning, EpubGraph extracts rich metadata from each EPUB:',
+        'm.lib.core': 'Core:', 'm.lib.core.d': 'title, author, series, publisher, description, language, ISBN',
+        'm.lib.subj': 'Subjects:', 'm.lib.subj.d': 'dc:subject elements from OPF (genre, topics, LoC headings)',
+        'm.lib.chap': 'Chapters:', 'm.lib.chap.d': 'extracted from EPUB TOC, including nested sections',
+        'm.lib.cov': 'Covers:', 'm.lib.cov.d': 'auto-extracted and cached locally',
+        'm.lib.cal': 'Calibre Import',
+        'm.lib.cal.d': 'Folders containing metadata.db are auto-recognized as Calibre libraries. All metadata, ratings (converted to 1-5), tags, and covers are imported non-destructively.',
+        'm.lib.tip.t': 'Pointer-Based Storage',
+        'm.lib.tip.d': 'EpubGraph never copies or modifies your files. It creates pointers to their existing locations.',
+        // Manual - Browsing
+        'm.br.h': 'Browsing & Managing',
+        'm.br.view': 'Library View',
+        'm.br.view.d': 'The main view shows books in a virtualized, responsive grid. Sort by title, author, date, rating, series, publish date, or random shuffle. Search uses FTS5 with weighted ranking.',
+        'm.br.menu': 'Right-Click Menu',
+        'm.br.m1': 'Add/Remove from Up Next',
+        'm.br.m2': 'Open Book', 'm.br.m2d': 'launches in your default EPUB reader',
+        'm.br.m3': 'View Details', 'm.br.m3d': 'opens detail sidebar',
+        'm.br.m4': 'Hide / Unhide Book',
+        'm.br.m5': 'Delete Book', 'm.br.m5d': 'sends to OS Trash with folder detection',
+        'm.br.m6': 'Hide/Delete All by Author', 'm.br.m6d': 'batch operations',
+        'm.br.hd': 'Hide & Delete',
+        'm.br.hd.d': 'Hidden books are excluded from recommendations, graph, and library view (toggle "Show Hidden" eye icon to reveal). Delete sends files to OS Trash. For Calibre book folders, you\'re asked whether to trash the folder or just the EPUB.',
+        'm.br.warn.t': 'Recoverable Deletion',
+        'm.br.warn.d': 'Files are sent to OS Trash, not permanently deleted. Restore from your system\'s Trash if needed.',
+        // Manual - Ratings
+        'm.rat.h': 'Ratings & Read Status',
+        'm.rat.d': 'Rate books 1-5 stars. Books rated 4+ become recommendation seeds. Read status tracks your progress:',
+        'm.rat.unread': 'Unread', 'm.rat.unread.d': '\u2014 default state',
+        'm.rat.want': 'Want to Read', 'm.rat.want.d': '\u2014 auto-added to Up Next',
+        'm.rat.reading': 'Reading', 'm.rat.reading.d': '\u2014 in progress',
+        'm.rat.finished': 'Finished', 'm.rat.finished.d': '\u2014 excluded from recommendations',
+        'm.rat.abandoned': 'Abandoned', 'm.rat.abandoned.d': '\u2014 excluded from recommendations',
+        // Manual - Graph
+        'm.gr.h': 'Book Graph',
+        'm.gr.d': 'Force-directed network visualization using Sigma.js. Select a center book, adjust depth (1-3 hops) and max nodes. Hidden books are automatically excluded.',
+        'm.gr.edge': 'Edge Types',
+        'm.gr.blue': 'Blue', 'm.gr.blue.d': 'Content similarity',
+        'm.gr.green': 'Green', 'm.gr.green.d': 'Same author',
+        'm.gr.amber': 'Amber', 'm.gr.amber.d': 'Same series',
+        'm.gr.purple': 'Purple', 'm.gr.purple.d': 'Shared tags',
+        // Manual - Backup
+        'm.bk.h': 'Backup & Export',
+        'm.bk.full': '<strong>Full Backup</strong> (recommended): Settings \u2192 "Create Backup" saves the complete <code>library.db</code> including metadata, ratings, embeddings, graph edges, summaries, and hidden states.',
+        'm.bk.json': '<strong>JSON Export</strong>: Settings \u2192 "Export Library" saves metadata and ratings as portable JSON. Embeddings are not included \u2014 they\'ll be regenerated on import.',
+        // Manual - Settings
+        'm.set.h': 'Settings',
+        'm.set.ep': 'Ollama Endpoint:', 'm.set.def': '(default)',
+        'm.set.em': 'Embedding Model:',
+        'm.set.cm': 'Chat Model:', 'm.set.cm.d': '(summary generation)',
+        'm.set.bs': 'Batch Size:', 'm.set.bs.d': 'books per processing cycle (default: 10)',
+        'm.set.as': 'Auto-scan:', 'm.set.as.d': 'periodically checks for new books',
+        // Manual - Troubleshooting
+        'm.ts.h': 'Troubleshooting',
+        'm.ts.nobooks': 'Books Not Appearing',
+        'm.ts.nb1': 'Check the "Show Hidden" toggle \u2014 they may be hidden',
+        'm.ts.nb2': 'Ensure files have <code>.epub</code> extension',
+        'm.ts.nb3': 'Re-scan the library; verify the folder path is accessible',
+        'm.ts.ollama': 'Ollama Issues',
+        'm.ts.ol1': 'Verify running: <code>ollama serve</code>',
+        'm.ts.ol2': 'Pull models: <code>ollama pull qwen3-embedding:8b</code>',
+        'm.ts.ol3': 'Without chat model, summaries are skipped (fallback to raw metadata)',
+        'm.ts.perf': 'Performance',
+        'm.ts.p1': 'Embedding: ~2-5s per book with chat model; use Pause in Settings during heavy use',
+        'm.ts.p2': 'Graph: reduce max nodes for large views (>100)',
+        'm.ts.p3': '3D bookshelf requires WebGL',
+        // Footer
+        'ft.license': 'License',
+        'ft.terms': 'Terms',
+        'ft.copy': '\u00A9 2025-2026 Paolo Grimaldi. Built with Tauri, Svelte, Rust & AI.',
+    };
+
+    // Store English translations
+    Object.keys(en).forEach(k => {
+        if (!i18nCache[k]) i18nCache[k] = {};
+        i18nCache[k].en = en[k];
+    });
+
+    function setLang(lang) {
+        currentLang = lang;
+        document.documentElement.lang = lang;
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            const entry = i18nCache[key];
+            if (!entry || !entry[lang]) return;
+            const isHtml = el.getAttribute('data-i18n-html') === 'true' ||
+                           (entry[lang] && entry[lang].includes('<'));
+            if (isHtml) {
+                el.innerHTML = entry[lang];
+            } else {
+                el.textContent = entry[lang];
+            }
+        });
+        // Update flag & label
+        document.getElementById('lang-flag').innerHTML = lang === 'es' ? '\u{1F1EC}\u{1F1E7}' : '\u{1F1EA}\u{1F1F8}';
+        document.getElementById('lang-label').textContent = lang === 'es' ? 'EN' : 'ES';
+        document.title = lang === 'es' ? 'EpubGraph - Biblioteca Inteligente de Ebooks' : 'EpubGraph - AI-Powered Ebook Library';
+    }
+
+    function toggleLang() {
+        setLang(currentLang === 'es' ? 'en' : 'es');
+    }
+    </script>
+</body>
+</html>
