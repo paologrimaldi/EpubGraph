@@ -28,8 +28,12 @@ export const scanProgress = writable<{
 } | null>(null);
 export const searchQuery = writable<string>('');
 export const filters = writable<Omit<BookQuery, 'search' | 'limit' | 'offset'>>({});
-export const sortBy = writable<BookQuery['sortBy']>('dateAdded');
-export const sortOrder = writable<BookQuery['sortOrder']>('desc');
+export const sortBy = writable<BookQuery['sortBy']>('random');
+export const sortOrder = writable<BookQuery['sortOrder']>('asc');
+export function generateSeed(): number {
+	return Math.floor(Math.random() * 2147483646) + 1;
+}
+export const randomSeed = writable<number>(generateSeed());
 
 // Pagination
 const PAGE_SIZE = 50;
@@ -47,6 +51,7 @@ export const currentQuery = derived(
 		...$filters,
 		sortBy: $sortBy,
 		sortOrder: $sortOrder,
+		seed: $sortBy === 'random' ? get(randomSeed) : undefined,
 		limit: PAGE_SIZE,
 		offset: $page * PAGE_SIZE
 	})
@@ -171,8 +176,12 @@ export async function loadBooks(): Promise<void> {
 		if (query.offset === 0) {
 			books.set(result.items);
 		} else {
-			// Append for infinite scroll
-			books.update((current) => [...current, ...result.items]);
+			// Append for infinite scroll, dedup by book ID
+			books.update((current) => {
+				const existingIds = new Set(current.map(b => b.id));
+				const newBooks = result.items.filter(b => !existingIds.has(b.id));
+				return [...current, ...newBooks];
+			});
 		}
 
 		totalBooks.set(result.total);

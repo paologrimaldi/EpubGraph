@@ -68,8 +68,9 @@ export interface BookQuery {
 	readStatus?: ReadStatus;
 	minRating?: number;
 	embeddingStatus?: EmbeddingStatus;
-	sortBy?: 'title' | 'author' | 'dateAdded' | 'rating' | 'series';
+	sortBy?: 'title' | 'author' | 'dateAdded' | 'rating' | 'series' | 'random' | 'publishDate';
 	sortOrder?: 'asc' | 'desc';
+	seed?: number;
 	limit?: number;
 	offset?: number;
 }

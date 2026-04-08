@@ -14,6 +14,7 @@
 		selectBook
 	} from '$lib/stores/library';
 	import SearchBar from '$lib/components/SearchBar.svelte';
+	import SortSelect from '$lib/components/SortSelect.svelte';
 	import BookGrid from '$lib/components/BookGrid.svelte';
 	import BookDetail from '$lib/components/BookDetail.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -61,14 +62,17 @@
 				</span>
 			</div>
 
-			<SearchBar value={$searchQuery} on:search={(e) => search(e.detail)} />
+			<div class="flex items-center gap-2.5">
+				<SortSelect />
+				<SearchBar value={$searchQuery} on:search={(e) => search(e.detail)} />
+			</div>
 		</div>
 	</header>
 
 	<!-- Content -->
 	<div class="flex-1 flex overflow-hidden">
 		<!-- Book Grid -->
-		<div class="flex-1 overflow-auto p-5">
+		<div class="flex-1 overflow-hidden">
 			{#if $books.length === 0 && !$isLoading}
 				<EmptyState
 					icon={Library}

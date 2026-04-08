@@ -19,6 +19,37 @@
 		ListMinus,
 		Loader2
 	} from 'lucide-svelte';
+	import { showTooltip, hideTooltip } from './Tooltip.svelte';
+
+	function truncatable(node: HTMLElement, text: string) {
+		let currentText = text;
+
+		function handleMouseEnter() {
+			const isTruncated = node.scrollWidth > node.clientWidth || node.scrollHeight > node.clientHeight;
+			if (isTruncated) {
+				const rect = node.getBoundingClientRect();
+				showTooltip(currentText, rect);
+			}
+		}
+
+		function handleMouseLeave() {
+			hideTooltip();
+		}
+
+		node.addEventListener('mouseenter', handleMouseEnter);
+		node.addEventListener('mouseleave', handleMouseLeave);
+
+		return {
+			update(text: string) {
+				currentText = text;
+			},
+			destroy() {
+				node.removeEventListener('mouseenter', handleMouseEnter);
+				node.removeEventListener('mouseleave', handleMouseLeave);
+				hideTooltip();
+			}
+		};
+	}
 
 	export let book: Book;
 	export let context: 'library' | 'upnext' | 'discover' = 'library';
@@ -264,7 +295,7 @@
 				<h4 class="text-[11px] font-semibold text-muted uppercase tracking-widest mb-2">
 					Description
 				</h4>
-				<p class="text-[13px] leading-relaxed text-secondary line-clamp-6">{book.description}</p>
+				<p class="text-[13px] leading-relaxed text-secondary line-clamp-6" use:truncatable={book.description}>{book.description}</p>
 			</div>
 		{/if}
 
@@ -333,6 +364,11 @@
 			{#if book.language}
 				<div class="text-[12px] text-secondary">
 					Language: {book.language}
+				</div>
+			{/if}
+			{#if book.publishDate}
+				<div class="text-[12px] text-secondary">
+					Published: {new Date(book.publishDate).toLocaleDateString()}
 				</div>
 			{/if}
 			{#if book.publisher}

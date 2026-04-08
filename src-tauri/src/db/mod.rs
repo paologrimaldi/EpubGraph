@@ -189,6 +189,7 @@ pub struct BookQuery {
     pub embedding_status: Option<String>,
     pub sort_by: Option<String>,
     pub sort_order: Option<String>,
+    pub seed: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

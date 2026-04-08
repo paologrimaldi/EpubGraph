@@ -188,16 +188,26 @@ impl Database {
                 sql.push_str(" ORDER BY rank");
             } else {
                 let sort_by = query.sort_by.as_deref().unwrap_or("date_added");
-                let sort_order = query.sort_order.as_deref().unwrap_or("desc");
-                let sort_column = match sort_by {
-                    "title" => "b.sort_title",
-                    "author" => "b.author_sort",
-                    "dateAdded" | "date_added" => "b.date_added",
-                    "rating" => "r.rating",
-                    "series" => "b.series, b.series_index",
-                    _ => "b.date_added",
+                let sort_order = match query.sort_order.as_deref().unwrap_or("desc") {
+                    "asc" | "ASC" => "ASC",
+                    _ => "DESC",
                 };
-                sql.push_str(&format!(" ORDER BY {} {}", sort_column, sort_order.to_uppercase()));
+                let order_clause = if sort_by == "random" {
+                    let seed = query.seed.unwrap_or(42);
+                    format!(" ORDER BY ((b.id * {}) % 2147483647)", seed)
+                } else {
+                    let sort_column = match sort_by {
+                        "title" => "b.sort_title",
+                        "author" => "b.author_sort",
+                        "dateAdded" | "date_added" => "b.date_added",
+                        "rating" => "r.rating",
+                        "series" => "b.series, b.series_index",
+                        "publishDate" | "publish_date" => "b.publish_date",
+                        _ => "b.date_added",
+                    };
+                    format!(" ORDER BY {} {}", sort_column, sort_order)
+                };
+                sql.push_str(&order_clause);
             }
 
             // Pagination

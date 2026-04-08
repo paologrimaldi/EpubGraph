@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import Toast from '$lib/components/Toast.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { theme } from '$lib/stores/theme';
 
 	let initialized = !browser;
@@ -38,3 +39,4 @@
 </div>
 
 <Toast />
+<Tooltip />

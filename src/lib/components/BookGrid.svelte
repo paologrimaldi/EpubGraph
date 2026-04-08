@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
+	import { createVirtualizer } from '@tanstack/svelte-virtual';
 	import type { Book } from '$lib/api/commands';
 	import BookCard from './BookCard.svelte';
 	import ContextMenu from './ContextMenu.svelte';
@@ -72,46 +73,107 @@
 		}
 	] as ContextMenuItem[] : [];
 
-	let containerEl: HTMLElement;
-	let scrollParent: HTMLElement | null = null;
+	// Virtualization — we measure the grid container once, compute
+	// exact pixel widths for cards, and hand explicit sizes to both
+	// flexbox rows and the virtualizer so nothing can drift.
+	let scrollElement: HTMLElement;
+	let gridEl: HTMLElement;
+	let containerWidth = 0;
 
-	function handleScroll() {
-		if (!scrollParent || loading || !hasMore) return;
+	const GAP = 14;
+	const MIN_COLUMNS = 2;
+	const MIN_CARD_WIDTH = 140;
+	const MAX_CARD_WIDTH = 176;
+	const INFO_HEIGHT = 60;
+	const CARD_BORDER = 1;
 
-		const { scrollTop, scrollHeight, clientHeight } = scrollParent;
-		// Load more when within 500px of the bottom
-		if (scrollHeight - scrollTop - clientHeight < 500) {
-			dispatch('loadMore');
+	function getItemsPerRow(width: number): number {
+		if (width <= 0) return 0;
+
+		// Column ladder: keep at least 2 columns and promote to the next
+		// column count before cards get visually oversized.
+		return Math.max(MIN_COLUMNS, Math.ceil((width + GAP) / (MAX_CARD_WIDTH + GAP)));
+	}
+
+	$: itemsPerRow = getItemsPerRow(containerWidth);
+	$: cardWidth = itemsPerRow > 0
+		? Math.floor((containerWidth - GAP * (itemsPerRow - 1)) / itemsPerRow)
+		: MIN_CARD_WIDTH;
+	$: coverHeight = Math.round(cardWidth * 1.5);
+	$: cardHeight = coverHeight + INFO_HEIGHT + CARD_BORDER;
+	$: rowHeight = cardHeight + GAP;
+	$: totalRows = itemsPerRow > 0 ? Math.ceil(books.length / itemsPerRow) : 0;
+
+	const virtualizer = createVirtualizer({
+		count: 0,
+		getScrollElement: () => scrollElement,
+		estimateSize: () => 320,
+		overscan: 3,
+	});
+
+	$: if (itemsPerRow > 0) {
+		$virtualizer.setOptions({
+			count: totalRows,
+			getScrollElement: () => scrollElement,
+			estimateSize: () => rowHeight,
+		});
+	}
+
+	// Trigger loadMore when near the end
+	$: virtualItems = $virtualizer.getVirtualItems();
+	$: {
+		if (virtualItems.length > 0) {
+			const lastItem = virtualItems[virtualItems.length - 1];
+			if (lastItem && lastItem.index >= totalRows - 3 && hasMore && !loading) {
+				dispatch('loadMore');
+			}
 		}
 	}
 
+	function getRowBooks(rowIndex: number): Book[] {
+		const start = rowIndex * itemsPerRow;
+		return books.slice(start, start + itemsPerRow);
+	}
+
 	onMount(() => {
-		// Find the scrollable parent
-		scrollParent = containerEl?.closest('.overflow-auto') as HTMLElement | null;
-
-		if (scrollParent) {
-			scrollParent.addEventListener('scroll', handleScroll, { passive: true });
-		}
-
-		return () => {
-			if (scrollParent) {
-				scrollParent.removeEventListener('scroll', handleScroll);
+		const observer = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				containerWidth = entry.contentRect.width;
 			}
-		};
+		});
+		if (gridEl) {
+			observer.observe(gridEl);
+		}
+		return () => observer.disconnect();
 	});
 </script>
 
-<div bind:this={containerEl} class="space-y-6">
-	<!-- Book Grid - auto-fit ensures minimum width per book -->
-	<div class="book-grid">
-		{#each books as book (book.id)}
-			<BookCard
-				{book}
-				selected={selectedBookId === book.id}
-				on:click={() => dispatch('select', book)}
-				on:contextmenu={handleBookContextMenu}
-			/>
-		{/each}
+<div bind:this={scrollElement} class="h-full overflow-auto p-5">
+	<div bind:this={gridEl}>
+		{#if books.length > 0 && itemsPerRow > 0}
+			<div style="height: {$virtualizer.getTotalSize()}px; width: 100%; position: relative;">
+				{#each $virtualizer.getVirtualItems() as virtualRow (virtualRow.index)}
+					<div
+						style="position: absolute; left: 0; width: 100%;
+							height: {cardHeight}px; display: flex; align-items: stretch; gap: {GAP}px;
+							transform: translateY({virtualRow.start}px);"
+					>
+						{#each getRowBooks(virtualRow.index) as book (book.id)}
+							<div style="width: {cardWidth}px; height: {cardHeight}px; flex: 0 0 {cardWidth}px;">
+								<BookCard
+									{book}
+									{coverHeight}
+									{cardHeight}
+									selected={selectedBookId === book.id}
+									on:click={() => dispatch('select', book)}
+									on:contextmenu={handleBookContextMenu}
+								/>
+							</div>
+						{/each}
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 
 	<!-- Context Menu -->

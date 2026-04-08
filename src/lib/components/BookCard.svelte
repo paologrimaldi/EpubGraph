@@ -4,9 +4,12 @@
 	import { getCoverImage } from '$lib/api/commands';
 	import { onMount } from 'svelte';
 	import { Star, BookOpen } from 'lucide-svelte';
+	import { showTooltip, hideTooltip } from './Tooltip.svelte';
 
 	export let book: Book;
 	export let selected = false;
+	export let coverHeight: number;
+	export let cardHeight: number;
 
 	const dispatch = createEventDispatcher<{
 		contextmenu: { book: Book; x: number; y: number };
@@ -43,20 +46,50 @@
 			default: return '';
 		}
 	}
+
+	function truncatable(node: HTMLElement, text: string) {
+		let currentText = text;
+
+		function handleMouseEnter() {
+			const isTruncated = node.scrollWidth > node.clientWidth || node.scrollHeight > node.clientHeight;
+			if (isTruncated) {
+				const rect = node.getBoundingClientRect();
+				showTooltip(currentText, rect);
+			}
+		}
+
+		function handleMouseLeave() {
+			hideTooltip();
+		}
+
+		node.addEventListener('mouseenter', handleMouseEnter);
+		node.addEventListener('mouseleave', handleMouseLeave);
+
+		return {
+			update(text: string) {
+				currentText = text;
+			},
+			destroy() {
+				node.removeEventListener('mouseenter', handleMouseEnter);
+				node.removeEventListener('mouseleave', handleMouseLeave);
+				hideTooltip();
+			}
+		};
+	}
 </script>
 
 <button
-	class="group text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gw-accent)] focus-visible:ring-offset-1 rounded-xl"
+	class="group block text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gw-accent)] focus-visible:ring-offset-1 rounded-xl"
 	on:click
 	on:contextmenu={handleContextMenu}
 >
 	<div
 		class="card overflow-hidden"
 		class:selected
-		style={selected ? 'border-color: var(--gw-accent); box-shadow: 0 0 0 2px var(--gw-accent-subtle), var(--gw-shadow-md)' : ''}
+		style={`height: ${cardHeight}px;${selected ? 'border-color: var(--gw-accent); box-shadow: 0 0 0 2px var(--gw-accent-subtle), var(--gw-shadow-md)' : ''}`}
 	>
 		<!-- Cover -->
-		<div class="relative book-cover" style="background: var(--gw-surface-tint)">
+		<div class="relative" style={`background: var(--gw-surface-tint); height: ${coverHeight}px;`}>
 			{#if loading}
 				<div class="absolute inset-0 flex items-center justify-center">
 					<div class="animate-pulse">
@@ -95,16 +128,20 @@
 		</div>
 
 		<!-- Info -->
-		<div class="px-2.5 py-2 h-[3.75rem] flex flex-col">
-			<h3 class="font-medium text-[12px] line-clamp-2 leading-snug tracking-tight flex-shrink-0" class:text-accent={selected}>
+		<div class="px-2.5 py-2 h-[3.75rem] flex flex-col overflow-hidden">
+			<h3
+				class="font-medium text-[12px] line-clamp-2 leading-snug tracking-tight flex-shrink-0"
+				class:text-accent={selected}
+				use:truncatable={book.title}
+			>
 				{book.title}
 			</h3>
-			<div class="mt-auto">
+			<div class="mt-auto min-w-0">
 				{#if book.author}
-					<p class="text-[11px] text-muted truncate leading-tight">{book.author}</p>
+					<p class="text-[11px] text-muted truncate leading-tight" use:truncatable={book.author}>{book.author}</p>
 				{/if}
 				{#if book.series}
-					<p class="text-[10px] truncate leading-tight" style="color: var(--gw-accent-text)">
+					<p class="text-[10px] truncate leading-tight" style="color: var(--gw-accent-text)" use:truncatable={`${book.series} #${book.seriesIndex ?? '?'}`}>
 						{book.series} #{book.seriesIndex ?? '?'}
 					</p>
 				{/if}
