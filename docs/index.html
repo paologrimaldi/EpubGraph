@@ -276,7 +276,7 @@
             box-shadow: 0 4px 24px var(--accent-glow);
         }
 
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(124, 106, 255, 0.3); text-decoration: none; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(193, 141, 27, 0.3); text-decoration: none; }
 
         .btn-secondary {
             background: var(--surface);
@@ -284,7 +284,7 @@
             border: 1px solid var(--glass-border);
         }
 
-        .btn-secondary:hover { border-color: rgba(124, 106, 255, 0.3); transform: translateY(-2px); text-decoration: none; }
+        .btn-secondary:hover { border-color: rgba(193, 141, 27, 0.3); transform: translateY(-2px); text-decoration: none; }
 
         .hero-stats {
             display: flex;
@@ -372,7 +372,7 @@
             transition: opacity 0.3s;
         }
 
-        .feat-card:hover { border-color: rgba(124, 106, 255, 0.2); transform: translateY(-4px); }
+        .feat-card:hover { border-color: rgba(193, 141, 27, 0.2); transform: translateY(-4px); }
         .feat-card:hover::before { opacity: 1; }
 
         .feat-icon {
@@ -479,7 +479,7 @@
             transition: border-color 0.3s;
         }
 
-        .howto-step:hover { border-color: rgba(124, 106, 255, 0.15); }
+        .howto-step:hover { border-color: rgba(193, 141, 27, 0.15); }
 
         .howto-num {
             width: 42px; height: 42px;
@@ -576,7 +576,7 @@
         code {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.82em;
-            background: rgba(124, 106, 255, 0.1);
+            background: rgba(193, 141, 27, 0.1);
             color: var(--accent-2);
             padding: 0.15rem 0.4rem;
             border-radius: var(--radius-xs);
@@ -657,7 +657,7 @@
         .callout-warning { background: rgba(251, 191, 36, 0.06); border-color: rgba(251, 191, 36, 0.15); }
         .callout-warning .callout-icon, .callout-warning .callout-title { color: var(--gold); }
 
-        .callout-info { background: var(--accent-glow-2); border-color: rgba(124, 106, 255, 0.15); }
+        .callout-info { background: var(--accent-glow-2); border-color: rgba(193, 141, 27, 0.15); }
         .callout-info .callout-icon, .callout-info .callout-title { color: var(--accent-2); }
 
         .status-list { list-style: none; margin-left: 0 !important; }
@@ -790,13 +790,17 @@
             <p class="hero-tagline" data-i18n="hero.tagline">Tu biblioteca contiene miles de libros. EpubGraph mapea las conexiones ocultas entre ellos usando embeddings neuronales, para que tu proxima lectura perfecta aparezca sola.</p>
 
             <div class="hero-actions">
-                <a href="#" class="btn btn-primary">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 1 7.38 16.75l.22.22A1 1 0 0 1 19 20.5h-1.13a8 8 0 1 0-3.09 1.34A1 1 0 0 1 16 23h-4a10 10 0 0 1 0-21z"/></svg>
+                <a href="dist/EpubGraph_0.1.0_aarch64.dmg" class="btn btn-primary" download>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83"/><path d="M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
                     <span data-i18n="hero.mac">Descargar para Mac</span>
                 </a>
-                <a href="#" class="btn btn-secondary">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-                    <span data-i18n="hero.win">Descargar para Windows</span>
+                <a class="btn btn-secondary" style="opacity:0.5;cursor:default;pointer-events:none">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5.5L10.5 3v8.5H3V5.5z"/><path d="M10.5 12.5H3V19l7.5 2.5v-9z"/><path d="M11.5 2.5L21 1v10h-9.5V2.5z"/><path d="M11.5 12H21v10l-9.5-1.5V12z"/></svg>
+                    <span data-i18n="hero.win">Windows &mdash; Proximamente</span>
+                </a>
+                <a href="https://github.com/paologrimaldi/EpubGraph" target="_blank" class="btn btn-secondary">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                    GitHub
                 </a>
             </div>
 
@@ -1023,7 +1027,7 @@ ollama serve</code></pre>
                     <li class="edge-item"><span class="edge-color" style="background:#38bdf8"></span><strong data-i18n="m.gr.blue">Azul</strong> &mdash; <span data-i18n="m.gr.blue.d">Similitud de contenido</span></li>
                     <li class="edge-item"><span class="edge-color" style="background:#34d399"></span><strong data-i18n="m.gr.green">Verde</strong> &mdash; <span data-i18n="m.gr.green.d">Mismo autor</span></li>
                     <li class="edge-item"><span class="edge-color" style="background:#fbbf24"></span><strong data-i18n="m.gr.amber">Ambar</strong> &mdash; <span data-i18n="m.gr.amber.d">Misma serie</span></li>
-                    <li class="edge-item"><span class="edge-color" style="background:#a78bfa"></span><strong data-i18n="m.gr.purple">Purpura</strong> &mdash; <span data-i18n="m.gr.purple.d">Etiquetas compartidas</span></li>
+                    <li class="edge-item"><span class="edge-color" style="background:#b87a6e"></span><strong data-i18n="m.gr.terra">Terracota</strong> &mdash; <span data-i18n="m.gr.terra.d">Etiquetas compartidas</span></li>
                 </ul>
             </div>
 
@@ -1339,7 +1343,7 @@ ollama serve</code></pre>
         'hero.title': 'Life is short.<br>Find your <em>next great read</em>.',
         'hero.tagline': 'Your library holds thousands of books. EpubGraph maps the hidden connections between them using neural embeddings, so the perfect next read surfaces itself.',
         'hero.mac': 'Download for Mac',
-        'hero.win': 'Download for Windows',
+        'hero.win': 'Windows \u2014 Coming Soon',
         'stat.model': 'Parameter Model',
         'stat.dims': 'Embedding Dims',
         'stat.books': 'Books Tested',
@@ -1432,7 +1436,7 @@ ollama serve</code></pre>
         'm.gr.blue': 'Blue', 'm.gr.blue.d': 'Content similarity',
         'm.gr.green': 'Green', 'm.gr.green.d': 'Same author',
         'm.gr.amber': 'Amber', 'm.gr.amber.d': 'Same series',
-        'm.gr.purple': 'Purple', 'm.gr.purple.d': 'Shared tags',
+        'm.gr.terra': 'Terracotta', 'm.gr.terra.d': 'Shared tags',
         // Manual - Backup
         'm.bk.h': 'Backup & Export',
         'm.bk.full': '<strong>Full Backup</strong> (recommended): Settings \u2192 "Create Backup" saves the complete <code>library.db</code> including metadata, ratings, embeddings, graph edges, summaries, and hidden states.',
