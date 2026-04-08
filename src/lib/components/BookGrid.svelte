@@ -6,7 +6,9 @@
 	import ContextMenu from './ContextMenu.svelte';
 	import type { ContextMenuItem } from './ContextMenu.svelte';
 	import { isInUpNextSync, toggleUpNext, loadUpNextBooks } from '$lib/stores/upnext';
-	import { ListPlus, ListMinus, ExternalLink, Info } from 'lucide-svelte';
+	import { hideBook, unhideBook, deleteBookFull, loadBooks, resetPagination } from '$lib/stores/library';
+	import * as api from '$lib/api/commands';
+	import { ListPlus, ListMinus, ExternalLink, Info, EyeOff, Eye, Trash2 } from 'lucide-svelte';
 
 	export let books: Book[] = [];
 	export let loading = false;
@@ -54,6 +56,85 @@
 		dispatch('select', contextMenuBook);
 	}
 
+	async function handleHideBook() {
+		const book = contextMenuBook;
+		if (!book) return;
+		try {
+			if (book.hidden) {
+				await unhideBook(book.id);
+			} else {
+				await hideBook(book.id);
+			}
+		} catch (e) {
+			console.error('Failed to hide/unhide book:', e);
+		}
+	}
+
+	async function handleDeleteBook() {
+		const book = contextMenuBook;
+		if (!book) return;
+		try {
+			const { ask } = await import('@tauri-apps/plugin-dialog');
+
+			// First confirm the user wants to delete at all
+			const confirmed = await ask(
+				`Delete "${book.title}"? The file will be sent to Trash.`,
+				{ title: 'Delete Book', kind: 'warning' }
+			);
+			if (!confirmed) return;
+
+			// Then check if there's a book folder and ask about it
+			let trashFolder = false;
+			const deleteInfo = await api.getBookDeleteInfo(book.id);
+			if (deleteInfo.hasBookFolder) {
+				trashFolder = await ask(
+					`"${book.title}" is inside folder "${deleteInfo.folderName}" which also contains cover and metadata files. Delete the entire folder?`,
+					{ title: 'Delete Folder', kind: 'warning', okLabel: 'Delete Folder', cancelLabel: 'File Only' }
+				);
+			}
+
+			await deleteBookFull(book.id, trashFolder);
+		} catch (e) {
+			console.error('Failed to delete book:', e);
+		}
+	}
+
+	async function handleHideByAuthor() {
+		const book = contextMenuBook;
+		if (!book?.author) return;
+		try {
+			await api.setBooksHiddenByAuthor(book.author, true);
+			resetPagination();
+			await loadBooks();
+		} catch (e) {
+			console.error('Failed to hide by author:', e);
+		}
+	}
+
+	async function handleDeleteByAuthor() {
+		const book = contextMenuBook;
+		if (!book?.author) return;
+		try {
+			const { ask } = await import('@tauri-apps/plugin-dialog');
+			const trashFolder = await ask(
+				`Delete ALL books by ${book.author}? Also delete book folders (covers, metadata)?`,
+				{ title: 'Delete by Author', kind: 'warning', okLabel: 'Delete Folders', cancelLabel: 'Files Only' }
+			);
+			// Either way we delete — the dialog asks about folders vs files only
+			const confirmed = await ask(
+				`Are you sure you want to delete ALL books by ${book.author}?`,
+				{ title: 'Confirm Delete', kind: 'warning' }
+			);
+			if (confirmed) {
+				await api.deleteBooksByAuthor(book.author, trashFolder);
+				resetPagination();
+				await loadBooks();
+			}
+		} catch (e) {
+			console.error('Failed to delete by author:', e);
+		}
+	}
+
 	$: contextMenuItems = contextMenuBook ? [
 		{
 			label: isInUpNextSync(contextMenuBook.id) ? 'Remove from Up Next' : 'Add to Up Next',
@@ -70,6 +151,32 @@
 			label: 'View Details',
 			action: handleViewDetails,
 			icon: Info
+		},
+		{ separator: true, label: '', action: () => {} },
+		{
+			label: contextMenuBook.hidden ? 'Unhide Book' : 'Hide Book',
+			action: handleHideBook,
+			icon: contextMenuBook.hidden ? Eye : EyeOff,
+			shortcut: 'H'
+		},
+		{
+			label: 'Delete Book',
+			action: handleDeleteBook,
+			icon: Trash2,
+			shortcut: '⌫'
+		},
+		{ separator: true, label: '', action: () => {} },
+		{
+			label: `Hide All by ${contextMenuBook.author ?? 'Author'}`,
+			action: handleHideByAuthor,
+			icon: EyeOff,
+			disabled: !contextMenuBook.author
+		},
+		{
+			label: `Delete All by ${contextMenuBook.author ?? 'Author'}`,
+			action: handleDeleteByAuthor,
+			icon: Trash2,
+			disabled: !contextMenuBook.author
 		}
 	] as ContextMenuItem[] : [];
 

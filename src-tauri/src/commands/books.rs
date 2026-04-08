@@ -34,13 +34,165 @@ pub async fn update_book(
     state.db.update_book(id, &updates).map_err(|e| e.to_string())
 }
 
-/// Delete a book from the database (does not delete the file)
+/// Check if a book lives in a dedicated folder (Calibre-style: folder contains
+/// the epub plus cover/metadata files, no other epub files from different books).
+fn get_book_folder(book_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let parent = book_path.parent()?;
+
+    // Don't trash folders that look like a library root (too many items)
+    let entries: Vec<_> = std::fs::read_dir(parent).ok()?.collect::<Result<Vec<_>, _>>().ok()?;
+    if entries.len() > 10 {
+        return None;
+    }
+
+    // Check that all files in the folder are book-related (epub, cover, metadata, etc.)
+    let book_extensions = ["epub", "jpg", "jpeg", "png", "gif", "opf", "xml", "json", "txt"];
+    let all_book_related = entries.iter().all(|e| {
+        let path = e.path();
+        if path.is_dir() {
+            return false; // Subdirectories suggest this isn't a simple book folder
+        }
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some(ext) => book_extensions.contains(&ext.to_lowercase().as_str()),
+            None => false,
+        }
+    });
+
+    if all_book_related {
+        Some(parent.to_path_buf())
+    } else {
+        None
+    }
+}
+
+/// Get info about a book's file structure for delete confirmation
+#[tauri::command]
+pub async fn get_book_delete_info(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+) -> Result<BookDeleteInfo, String> {
+    let book = state.db.get_book(id).map_err(|e| e.to_string())?;
+    let book_path = std::path::Path::new(&book.path);
+    let folder = get_book_folder(book_path);
+
+    let folder_name = folder.as_ref().and_then(|f| {
+        f.file_name().map(|n| n.to_string_lossy().to_string())
+    });
+
+    Ok(BookDeleteInfo {
+        has_book_folder: folder.is_some(),
+        folder_name,
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookDeleteInfo {
+    pub has_book_folder: bool,
+    pub folder_name: Option<String>,
+}
+
+/// Delete a book from the database and send the file (or folder) to OS trash
 #[tauri::command]
 pub async fn delete_book(
     state: State<'_, Arc<AppState>>,
     id: i64,
+    trash_folder: Option<bool>,
 ) -> Result<(), String> {
-    state.db.delete_book(id).map_err(|e| e.to_string())
+    let book = state.db.get_book(id).map_err(|e| e.to_string())?;
+
+    // Clean up vector store embedding (separate DB, not covered by CASCADE)
+    if let Err(e) = state.vector_store.delete_embedding(id) {
+        tracing::warn!("Could not delete embedding for book {}: {}", id, e);
+    }
+
+    state.db.delete_book(id).map_err(|e| e.to_string())?;
+
+    let book_path = std::path::Path::new(&book.path);
+    let trash_folder = trash_folder.unwrap_or(false);
+
+    if trash_folder {
+        // Try to trash the parent folder if it's a book-specific folder
+        if let Some(folder) = get_book_folder(book_path) {
+            if let Err(e) = trash::delete(&folder) {
+                tracing::warn!("Could not send folder to trash ({}): {}", folder.display(), e);
+                // Fall back to trashing just the file
+                if let Err(e) = trash::delete(&book.path) {
+                    tracing::warn!("Could not send file to trash ({}): {}", book.path, e);
+                }
+            }
+        } else {
+            // No book folder found, just trash the file
+            if let Err(e) = trash::delete(&book.path) {
+                tracing::warn!("Could not send file to trash ({}): {}", book.path, e);
+            }
+        }
+    } else {
+        // Just trash the epub file
+        if let Err(e) = trash::delete(&book.path) {
+            tracing::warn!("Could not send file to trash ({}): {}", book.path, e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Set book hidden status
+#[tauri::command]
+pub async fn set_book_hidden(
+    state: State<'_, Arc<AppState>>,
+    id: i64,
+    hidden: bool,
+) -> Result<(), String> {
+    state.db.set_book_hidden(id, hidden).map_err(|e| e.to_string())
+}
+
+/// Set hidden status for all books by an author, returns count of affected books
+#[tauri::command]
+pub async fn set_books_hidden_by_author(
+    state: State<'_, Arc<AppState>>,
+    author: String,
+    hidden: bool,
+) -> Result<i64, String> {
+    state.db.set_books_hidden_by_author(&author, hidden).map_err(|e| e.to_string())
+}
+
+/// Delete all books by an author (DB + trash files/folders)
+#[tauri::command]
+pub async fn delete_books_by_author(
+    state: State<'_, Arc<AppState>>,
+    author: String,
+    trash_folder: Option<bool>,
+) -> Result<DeleteBatchResult, String> {
+    let books = state.db.get_books_by_author(&author).map_err(|e| e.to_string())?;
+    let trash_folder = trash_folder.unwrap_or(false);
+    let mut deleted = 0i64;
+    let mut trashed = 0i64;
+
+    for (id, path) in &books {
+        // Clean up vector store embedding
+        let _ = state.vector_store.delete_embedding(*id);
+        if state.db.delete_book(*id).is_ok() {
+            deleted += 1;
+            let book_path = std::path::Path::new(path);
+            let trash_target = if trash_folder {
+                get_book_folder(book_path).unwrap_or_else(|| book_path.to_path_buf())
+            } else {
+                book_path.to_path_buf()
+            };
+            if trash::delete(&trash_target).is_ok() {
+                trashed += 1;
+            }
+        }
+    }
+
+    Ok(DeleteBatchResult { deleted, trashed })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DeleteBatchResult {
+    pub deleted: i64,
+    pub trashed: i64,
 }
 
 /// Set book rating (1-5)

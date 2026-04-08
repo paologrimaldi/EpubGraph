@@ -79,6 +79,9 @@ image = { version = "0.24", default-features = false, features = ["jpeg", "png"]
 # Platform directories
 dirs = "5"
 
+# Send files to OS trash
+trash = "5"
+
 [dev-dependencies]
 tempfile = "3"
 

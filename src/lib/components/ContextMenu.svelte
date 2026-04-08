@@ -7,6 +7,7 @@
 		icon?: ComponentType;
 		disabled?: boolean;
 		separator?: boolean;
+		shortcut?: string;
 	}
 </script>
 
@@ -100,6 +101,9 @@
 					</span>
 				{/if}
 				<span class="context-menu-label">{item.label}</span>
+				{#if item.shortcut}
+					<span class="context-menu-shortcut">{item.shortcut}</span>
+				{/if}
 			</button>
 		{/if}
 	{/each}
@@ -160,6 +164,13 @@
 
 	.context-menu-label {
 		flex: 1;
+	}
+
+	.context-menu-shortcut {
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.35);
+		margin-left: auto;
+		padding-left: 16px;
 	}
 
 	.context-menu-separator {

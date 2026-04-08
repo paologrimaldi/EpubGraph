@@ -129,6 +129,7 @@ pub struct Book {
     pub date_indexed: Option<i64>,
     pub embedding_status: String,
     pub embedding_model: Option<String>,
+    pub hidden: bool,
     // User data (from join)
     pub rating: Option<i32>,
     pub read_status: Option<String>,
@@ -192,6 +193,7 @@ pub struct BookQuery {
     pub seed: Option<i64>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub show_hidden: Option<bool>,
 }
 
 /// Settings record

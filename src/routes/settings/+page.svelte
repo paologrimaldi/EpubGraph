@@ -76,6 +76,12 @@
 
 	$: currentTheme = $theme;
 
+	const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
+		{ value: 'light', label: 'Light', icon: Sun },
+		{ value: 'dark', label: 'Dark', icon: Moon },
+		{ value: 'system', label: 'System', icon: Monitor }
+	];
+
 	function setTheme(newTheme: Theme) {
 		theme.set(newTheme);
 	}
@@ -348,11 +354,7 @@
 					<div>
 						<label class="block text-[12px] font-medium text-secondary mb-2.5">Theme</label>
 						<div class="flex gap-2">
-							{#each [
-								{ value: 'light', label: 'Light', icon: Sun },
-								{ value: 'dark', label: 'Dark', icon: Moon },
-								{ value: 'system', label: 'System', icon: Monitor }
-							] as opt}
+							{#each themeOptions as opt}
 								<button
 									class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all"
 									style={currentTheme === opt.value

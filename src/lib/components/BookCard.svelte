@@ -3,7 +3,7 @@
 	import type { Book } from '$lib/api/commands';
 	import { getCoverImage } from '$lib/api/commands';
 	import { onMount } from 'svelte';
-	import { Star, BookOpen } from 'lucide-svelte';
+	import { Star, BookOpen, EyeOff } from 'lucide-svelte';
 	import { showTooltip, hideTooltip } from './Tooltip.svelte';
 
 	export let book: Book;
@@ -86,7 +86,7 @@
 	<div
 		class="card overflow-hidden"
 		class:selected
-		style={`height: ${cardHeight}px;${selected ? 'border-color: var(--gw-accent); box-shadow: 0 0 0 2px var(--gw-accent-subtle), var(--gw-shadow-md)' : ''}`}
+		style={`height: ${cardHeight}px;${selected ? 'border-color: var(--gw-accent); box-shadow: 0 0 0 2px var(--gw-accent-subtle), var(--gw-shadow-md)' : ''}${book.hidden ? '; opacity: 0.45' : ''}`}
 	>
 		<!-- Cover -->
 		<div class="relative" style={`background: var(--gw-surface-tint); height: ${coverHeight}px;`}>
@@ -108,6 +108,13 @@
 						<BookOpen class="w-8 h-8 text-muted mx-auto mb-1.5" />
 						<p class="text-[11px] text-muted line-clamp-2 leading-tight">{book.title}</p>
 					</div>
+				</div>
+			{/if}
+
+			<!-- Hidden indicator -->
+			{#if book.hidden}
+				<div class="absolute top-1.5 left-1.5 bg-black/60 backdrop-blur-sm rounded-md p-1">
+					<EyeOff class="w-3 h-3 text-white/80" />
 				</div>
 			{/if}
 

@@ -4,7 +4,7 @@ use crate::AppResult;
 use rusqlite::Connection;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> AppResult<()> {
@@ -37,6 +37,9 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     }
     if current_version < 3 {
         migrate_v3(conn)?;
+    }
+    if current_version < 4 {
+        migrate_v4(conn)?;
     }
 
     Ok(())
@@ -336,5 +339,27 @@ fn migrate_v3(conn: &Connection) -> AppResult<()> {
     )?;
 
     tracing::info!("Migration v3 applied successfully");
+    Ok(())
+}
+
+/// Hidden books feature migration
+fn migrate_v4(conn: &Connection) -> AppResult<()> {
+    tracing::info!("Applying migration v4: Hidden books column");
+
+    conn.execute_batch(r#"
+        -- Add hidden flag to books (0 = visible, 1 = hidden)
+        ALTER TABLE books ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;
+
+        -- Index for filtering hidden books
+        CREATE INDEX IF NOT EXISTS idx_books_hidden ON books(hidden);
+    "#)?;
+
+    // Record migration
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?)",
+        [4],
+    )?;
+
+    tracing::info!("Migration v4 applied successfully");
     Ok(())
 }

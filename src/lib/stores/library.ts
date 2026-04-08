@@ -30,6 +30,7 @@ export const searchQuery = writable<string>('');
 export const filters = writable<Omit<BookQuery, 'search' | 'limit' | 'offset'>>({});
 export const sortBy = writable<BookQuery['sortBy']>('random');
 export const sortOrder = writable<BookQuery['sortOrder']>('asc');
+export const showHidden = writable<boolean>(false);
 export function generateSeed(): number {
 	return Math.floor(Math.random() * 2147483646) + 1;
 }
@@ -45,13 +46,14 @@ export const hasMore = writable<boolean>(false);
 // ============================================
 
 export const currentQuery = derived(
-	[searchQuery, filters, sortBy, sortOrder, currentPage],
-	([$search, $filters, $sortBy, $sortOrder, $page]) => ({
+	[searchQuery, filters, sortBy, sortOrder, currentPage, showHidden],
+	([$search, $filters, $sortBy, $sortOrder, $page, $showHidden]) => ({
 		search: $search || undefined,
 		...$filters,
 		sortBy: $sortBy,
 		sortOrder: $sortOrder,
 		seed: $sortBy === 'random' ? get(randomSeed) : undefined,
+		showHidden: $showHidden || undefined,
 		limit: PAGE_SIZE,
 		offset: $page * PAGE_SIZE
 	})
@@ -257,6 +259,44 @@ export async function setBookReadStatus(bookId: number, status: api.ReadStatus):
 	if (get(selectedBook)?.id === bookId) {
 		selectedBook.update((b) => (b ? { ...b, readStatus: status } : null));
 	}
+}
+
+// ============================================
+// Hide / Delete Actions
+// ============================================
+
+export async function hideBook(bookId: number): Promise<void> {
+	await api.setBookHidden(bookId, true);
+	if (get(selectedBook)?.id === bookId) {
+		selectedBook.set(null);
+	}
+	if (!get(showHidden)) {
+		// Remove from local list and adjust total
+		books.set(get(books).filter((b) => b.id !== bookId));
+		totalBooks.update((n) => n - 1);
+	} else {
+		books.set(get(books).map((b) => (b.id === bookId ? { ...b, hidden: true } : b)));
+	}
+}
+
+export async function unhideBook(bookId: number): Promise<void> {
+	await api.setBookHidden(bookId, false);
+	books.set(get(books).map((b) => (b.id === bookId ? { ...b, hidden: false } : b)));
+}
+
+export async function deleteBookFull(bookId: number, trashFolder?: boolean): Promise<void> {
+	await api.deleteBook(bookId, trashFolder);
+	if (get(selectedBook)?.id === bookId) {
+		selectedBook.set(null);
+	}
+	books.set(get(books).filter((b) => b.id !== bookId));
+	totalBooks.update((n) => n - 1);
+}
+
+export async function toggleShowHidden(): Promise<void> {
+	showHidden.update((v) => !v);
+	resetPagination();
+	await loadBooks();
 }
 
 // ============================================

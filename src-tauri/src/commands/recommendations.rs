@@ -208,8 +208,11 @@ pub async fn get_book_graph(
             }
             visited.insert(book_id);
 
-            // Add node
+            // Add node (skip hidden books unless they are the center)
             if let Ok(book) = state.db.get_book(book_id) {
+                if book.hidden && book_id != center_id {
+                    continue;
+                }
                 nodes.push(GraphNode {
                     id: book.id,
                     title: book.title.clone(),
@@ -498,14 +501,14 @@ pub async fn get_smart_recommendations(
     let mut seen_ids: HashSet<i64> = HashSet::new();
 
     for book in up_next_books {
-        if !seen_ids.contains(&book.id) {
+        if !seen_ids.contains(&book.id) && !book.hidden {
             seen_ids.insert(book.id);
             seed_books.push((book, true)); // true = in up next
         }
     }
 
     for book in highly_rated_books {
-        if !seen_ids.contains(&book.id) {
+        if !seen_ids.contains(&book.id) && !book.hidden {
             seen_ids.insert(book.id);
             seed_books.push((book, false)); // false = not in up next (just highly rated)
         }
@@ -574,7 +577,10 @@ pub async fn get_smart_recommendations(
                 Err(_) => continue,
             };
 
-            // Skip finished or abandoned books
+            // Skip hidden, finished, or abandoned books
+            if target_book.hidden {
+                continue;
+            }
             if let Some(ref status) = target_book.read_status {
                 if status == "finished" || status == "abandoned" {
                     continue;

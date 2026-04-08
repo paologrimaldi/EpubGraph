@@ -40,6 +40,7 @@ export interface Book {
 	dateIndexed: number | null;
 	embeddingStatus: EmbeddingStatus;
 	embeddingModel: string | null;
+	hidden: boolean;
 	rating: number | null;
 	readStatus: ReadStatus | null;
 }
@@ -73,6 +74,7 @@ export interface BookQuery {
 	seed?: number;
 	limit?: number;
 	offset?: number;
+	showHidden?: boolean;
 }
 
 export interface PagedResult<T> {
@@ -233,9 +235,34 @@ export async function updateBook(id: number, updates: BookUpdate): Promise<void>
 	return invoke('update_book', { id, updates });
 }
 
-export async function deleteBook(id: number): Promise<void> {
+export async function deleteBook(id: number, trashFolder?: boolean): Promise<void> {
 	const invoke = await getInvoke();
-	return invoke('delete_book', { id });
+	return invoke('delete_book', { id, trashFolder });
+}
+
+export interface BookDeleteInfo {
+	hasBookFolder: boolean;
+	folderName: string | null;
+}
+
+export async function getBookDeleteInfo(id: number): Promise<BookDeleteInfo> {
+	const invoke = await getInvoke();
+	return invoke('get_book_delete_info', { id });
+}
+
+export async function setBookHidden(id: number, hidden: boolean): Promise<void> {
+	const invoke = await getInvoke();
+	return invoke('set_book_hidden', { id, hidden });
+}
+
+export async function setBooksHiddenByAuthor(author: string, hidden: boolean): Promise<number> {
+	const invoke = await getInvoke();
+	return invoke('set_books_hidden_by_author', { author, hidden });
+}
+
+export async function deleteBooksByAuthor(author: string, trashFolder?: boolean): Promise<{ deleted: number; trashed: number }> {
+	const invoke = await getInvoke();
+	return invoke('delete_books_by_author', { author, trashFolder });
 }
 
 export async function setRating(bookId: number, rating: number): Promise<void> {

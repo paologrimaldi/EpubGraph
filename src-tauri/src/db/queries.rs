@@ -4,6 +4,15 @@ use super::{Book, BookEdge, BookQuery, Database, Library, PagedResult, Settings}
 use crate::{AppError, AppResult};
 use rusqlite::{params, Row};
 
+/// Explicit column list for book queries (excludes chapter_titles_json added in v3).
+/// Must match the order expected by `row_to_book`.
+const BOOK_COLUMNS: &str = "b.id, b.path, b.cover_path, b.file_size, b.file_hash,
+    b.title, b.sort_title, b.author, b.author_sort,
+    b.series, b.series_index, b.description, b.language,
+    b.publisher, b.publish_date, b.isbn, b.calibre_id,
+    b.source, b.date_added, b.date_modified, b.date_indexed,
+    b.embedding_status, b.embedding_model, b.hidden";
+
 impl Database {
     // ============================================
     // LIBRARY OPERATIONS
@@ -114,7 +123,8 @@ impl Database {
                             b.series, b.series_index, b.description, b.language,
                             b.publisher, b.publish_date, b.isbn, b.calibre_id,
                             b.source, b.date_added, b.date_modified, b.date_indexed,
-                            b.embedding_status, b.embedding_model, r.rating, r.read_status,
+                            b.embedding_status, b.embedding_model, b.hidden,
+                            r.rating, r.read_status,
                             bm25(books_fts, 10.0, 5.0, 3.0, 1.0) as rank
                      FROM books b
                      LEFT JOIN ratings r ON b.id = r.book_id
@@ -128,13 +138,19 @@ impl Database {
                             b.series, b.series_index, b.description, b.language,
                             b.publisher, b.publish_date, b.isbn, b.calibre_id,
                             b.source, b.date_added, b.date_modified, b.date_indexed,
-                            b.embedding_status, b.embedding_model, r.rating, r.read_status
+                            b.embedding_status, b.embedding_model, b.hidden,
+                            r.rating, r.read_status
                      FROM books b
                      LEFT JOIN ratings r ON b.id = r.book_id"
                 )
             };
 
             let mut sql = base_sql;
+
+            // Hidden filter (exclude hidden books by default)
+            if !query.show_hidden.unwrap_or(false) {
+                conditions.push("b.hidden = 0");
+            }
 
             // Author filter
             if let Some(ref author) = query.author {
@@ -234,10 +250,10 @@ impl Database {
     pub fn get_book(&self, id: i64) -> AppResult<Book> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT b.*, r.rating, r.read_status 
-                 FROM books b 
+                &format!("SELECT {}, r.rating, r.read_status
+                 FROM books b
                  LEFT JOIN ratings r ON b.id = r.book_id
-                 WHERE b.id = ?",
+                 WHERE b.id = ?", BOOK_COLUMNS),
                 [id],
                 row_to_book,
             ).map_err(|e| match e {
@@ -251,10 +267,10 @@ impl Database {
     pub fn get_book_by_path(&self, path: &str) -> AppResult<Option<Book>> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT b.*, r.rating, r.read_status 
-                 FROM books b 
+                &format!("SELECT {}, r.rating, r.read_status
+                 FROM books b
                  LEFT JOIN ratings r ON b.id = r.book_id
-                 WHERE b.path = ?",
+                 WHERE b.path = ?", BOOK_COLUMNS),
                 [path],
                 row_to_book,
             ).optional().map_err(AppError::Database)
@@ -384,7 +400,43 @@ impl Database {
             Ok(())
         })
     }
-    
+
+    /// Set the hidden flag on a book
+    pub fn set_book_hidden(&self, id: i64, hidden: bool) -> AppResult<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE books SET hidden = ? WHERE id = ?",
+                params![hidden as i32, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Set the hidden flag on all books by an author, returns affected count
+    pub fn set_books_hidden_by_author(&self, author: &str, hidden: bool) -> AppResult<i64> {
+        self.with_conn(|conn| {
+            let affected = conn.execute(
+                "UPDATE books SET hidden = ? WHERE author = ?",
+                params![hidden as i32, author],
+            )?;
+            Ok(affected as i64)
+        })
+    }
+
+    /// Get all book IDs and paths for an author (for batch delete + trash)
+    pub fn get_books_by_author(&self, author: &str) -> AppResult<Vec<(i64, String)>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, path FROM books WHERE author = ?"
+            )?;
+            let results = stmt.query_map([author], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+            Ok(results)
+        })
+    }
+
     // ============================================
     // RATINGS OPERATIONS
     // ============================================
@@ -567,7 +619,7 @@ impl Database {
     pub fn get_pending_embedding_books(&self, limit: i64) -> AppResult<Vec<i64>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id FROM books WHERE embedding_status = 'pending' ORDER BY date_added DESC LIMIT ?"
+                "SELECT id FROM books WHERE embedding_status = 'pending' ORDER BY hidden ASC, date_added DESC LIMIT ?"
             )?;
             let ids = stmt.query_map([limit], |row| row.get(0))?
                 .collect::<Result<Vec<i64>, _>>()?;
@@ -757,11 +809,11 @@ impl Database {
     pub fn get_up_next_books(&self) -> AppResult<Vec<Book>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT b.*, r.rating, r.read_status
+                &format!("SELECT {}, r.rating, r.read_status
                  FROM books b
                  LEFT JOIN ratings r ON b.id = r.book_id
                  INNER JOIN up_next un ON b.id = un.book_id
-                 ORDER BY un.position ASC, un.added_at ASC"
+                 ORDER BY un.position ASC, un.added_at ASC", BOOK_COLUMNS)
             )?;
 
             let books = stmt.query_map([], row_to_book)?
@@ -827,11 +879,11 @@ impl Database {
     pub fn get_want_to_read_books(&self) -> AppResult<Vec<Book>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT b.*, r.rating, r.read_status
+                &format!("SELECT {}, r.rating, r.read_status
                  FROM books b
                  LEFT JOIN ratings r ON b.id = r.book_id
                  WHERE r.read_status = 'want'
-                 ORDER BY r.date_rated DESC"
+                 ORDER BY r.date_rated DESC", BOOK_COLUMNS)
             )?;
 
             let books = stmt.query_map([], row_to_book)?
@@ -845,12 +897,12 @@ impl Database {
     pub fn get_highly_rated_books(&self, min_rating: i32, limit: i64) -> AppResult<Vec<Book>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT b.*, r.rating, r.read_status
+                &format!("SELECT {}, r.rating, r.read_status
                  FROM books b
                  INNER JOIN ratings r ON b.id = r.book_id
                  WHERE r.rating >= ?
                  ORDER BY r.rating DESC, r.date_rated DESC
-                 LIMIT ?"
+                 LIMIT ?", BOOK_COLUMNS)
             )?;
 
             let books = stmt.query_map(params![min_rating, limit], row_to_book)?
@@ -970,8 +1022,9 @@ fn row_to_book(row: &Row<'_>) -> rusqlite::Result<Book> {
         date_indexed: row.get(20)?,
         embedding_status: row.get(21)?,
         embedding_model: row.get(22)?,
-        rating: row.get(23)?,
-        read_status: row.get(24)?,
+        hidden: row.get(23)?,
+        rating: row.get(24)?,
+        read_status: row.get(25)?,
     })
 }
 
