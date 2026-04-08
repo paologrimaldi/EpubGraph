@@ -224,8 +224,8 @@
 			</div>
 		</div>
 
-		<!-- Graph -->
-		<div class="flex-1 p-4">
+		<!-- Graph area — full bleed, no padding for edge-to-edge canvas -->
+		<div class="flex-1 graph-area">
 			<GraphView
 				{centerId}
 				{depth}
@@ -235,3 +235,14 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.graph-area {
+		padding: 0;
+		position: relative;
+	}
+
+	.graph-area :global(.graph-canvas) {
+		border-radius: 0;
+	}
+</style>

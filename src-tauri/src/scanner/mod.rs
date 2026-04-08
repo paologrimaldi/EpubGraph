@@ -123,6 +123,8 @@ impl Scanner {
                 publish_date: None,
                 isbn: None,
                 source: "scan".to_string(),
+                subjects: vec![],
+                chapter_titles: vec![],
             });
         }
 

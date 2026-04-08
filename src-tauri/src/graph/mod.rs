@@ -461,13 +461,26 @@ pub fn generate_recommendations(
         })
         .collect();
 
+    // Build embedding lookup from graph edges for cosine-based MMR diversity
+    // Collect pairwise content edge weights as a proxy for cosine similarity
+    let edge_similarities: HashMap<(i64, i64), f64> = {
+        let mut sims = HashMap::new();
+        for candidate in &scored_candidates {
+            for neighbor in graph.neighbors(candidate.book_id) {
+                if neighbor.2 == "content" {
+                    sims.insert((candidate.book_id, neighbor.0), neighbor.1);
+                    sims.insert((neighbor.0, candidate.book_id), neighbor.1);
+                }
+            }
+        }
+        sims
+    };
+
     let diverse = maximal_marginal_relevance(
         &scored_candidates,
         |a, b| {
-            // Simple similarity: inverse of score difference
-            let score_a = scored.iter().find(|s| s.book_id == a).map(|s| s.combined_score).unwrap_or(0.0);
-            let score_b = scored.iter().find(|s| s.book_id == b).map(|s| s.combined_score).unwrap_or(0.0);
-            1.0 - (score_a - score_b).abs()
+            // Use stored content edge weight (cosine similarity) for MMR diversity
+            edge_similarities.get(&(a, b)).copied().unwrap_or(0.0)
         },
         0.7, // Lambda: 70% relevance, 30% diversity
         limit,

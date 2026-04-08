@@ -116,7 +116,7 @@ impl BackgroundWorker {
         }
     }
 
-    /// Generate embedding for a book
+    /// Generate embedding for a book using LLM summary enrichment
     async fn generate_embedding(&self, book_id: i64) -> AppResult<()> {
         // Check if already has embedding
         if self.vector_store.has_embedding(book_id) {
@@ -127,13 +127,26 @@ impl BackgroundWorker {
         // Get book metadata
         let book = self.db.get_book(book_id)?;
 
-        // Build text for embedding
-        let text = book_to_embedding_text(
-            &book.title,
-            book.author.as_deref(),
-            book.description.as_deref(),
-            book.series.as_deref(),
-        );
+        // Get tags and chapter titles for enriched embedding
+        let tags = self.db.get_book_tags(book_id).unwrap_or_default();
+        let chapter_titles = self.db.get_book_chapter_titles(book_id).unwrap_or_default();
+
+        // Build the text to embed: prefer LLM summary if available/generable
+        let text = match self.get_or_generate_summary(book_id, &book, &tags, &chapter_titles).await {
+            Ok(summary) => summary,
+            Err(e) => {
+                tracing::debug!("Summary generation unavailable for book {}: {}, falling back to metadata", book_id, e);
+                // Fall back to metadata-only embedding
+                book_to_embedding_text(
+                    &book.title,
+                    book.author.as_deref(),
+                    book.description.as_deref(),
+                    book.series.as_deref(),
+                    Some(&tags),
+                    Some(&chapter_titles),
+                )
+            }
+        };
 
         // Generate embedding
         let embedding = {
@@ -147,7 +160,6 @@ impl BackgroundWorker {
                 Ok(emb) => emb,
                 Err(e) => {
                     tracing::warn!("Failed to generate embedding for book {}: {}", book_id, e);
-                    // Update book status to failed
                     self.db.update_embedding_status(book_id, "failed")?;
                     return Err(e);
                 }
@@ -156,7 +168,7 @@ impl BackgroundWorker {
 
         // Store embedding
         let model = self.ollama.read().model().to_string();
-        let text_hash = format!("{:x}", md5_hash(&text));
+        let text_hash = text_hash(&text);
         self.vector_store.store_embedding(book_id, &embedding, &model, Some(&text_hash))?;
 
         // Update book status
@@ -168,6 +180,22 @@ impl BackgroundWorker {
         let _ = self.update_graph_edges(book_id).await;
 
         Ok(())
+    }
+
+    /// Get an existing summary or generate one via LLM chat
+    async fn get_or_generate_summary(
+        &self,
+        book_id: i64,
+        book: &crate::db::Book,
+        tags: &[String],
+        chapter_titles: &[String],
+    ) -> AppResult<String> {
+        let settings = self.db.get_settings()?;
+        let endpoint = self.ollama.read().endpoint().to_string();
+        crate::ollama::get_or_generate_summary(
+            &self.db, &endpoint, &settings.ollama_chat_model,
+            book_id, book, tags, chapter_titles,
+        ).await
     }
 
     /// Update graph edges for a book based on embedding similarity
@@ -217,6 +245,7 @@ impl BackgroundWorker {
 }
 
 /// Process pending embedding jobs from database
+/// Generates LLM summaries then embeds them. Respects pause flag for safe stop/resume.
 pub async fn process_pending_embeddings(
     db: &Database,
     vector_store: &Arc<VectorStore>,
@@ -231,10 +260,16 @@ pub async fn process_pending_embeddings(
         return Ok(0);
     }
 
+    // Read config once before the loop to avoid per-book DB/lock reads
+    let settings = db.get_settings()?;
+    let chat_model_for_summary = settings.ollama_chat_model;
+    let endpoint_for_summary = ollama.read().endpoint().to_string();
+
     let mut processed = 0;
 
     for book_id in pending_books {
         if paused.load(Ordering::Relaxed) {
+            tracing::info!("Processing paused after {} books", processed);
             break;
         }
 
@@ -247,12 +282,24 @@ pub async fn process_pending_embeddings(
 
         // Get book and generate embedding
         if let Ok(book) = db.get_book(book_id) {
-            let text = book_to_embedding_text(
-                &book.title,
-                book.author.as_deref(),
-                book.description.as_deref(),
-                book.series.as_deref(),
-            );
+            let tags = db.get_book_tags(book_id).unwrap_or_default();
+            let chapter_titles = db.get_book_chapter_titles(book_id).unwrap_or_default();
+
+            // Try LLM summary first, fall back to metadata
+            let text = match crate::ollama::get_or_generate_summary(db, &endpoint_for_summary, &chat_model_for_summary, book_id, &book, &tags, &chapter_titles).await {
+                Ok(summary) => summary,
+                Err(e) => {
+                    tracing::debug!("Summary unavailable for book {}: {}, using metadata", book_id, e);
+                    book_to_embedding_text(
+                        &book.title,
+                        book.author.as_deref(),
+                        book.description.as_deref(),
+                        book.series.as_deref(),
+                        Some(&tags),
+                        Some(&chapter_titles),
+                    )
+                }
+            };
 
             let (endpoint, model) = {
                 let o = ollama.read();
@@ -263,7 +310,7 @@ pub async fn process_pending_embeddings(
 
             match client.embed(&text).await {
                 Ok(embedding) => {
-                    let text_hash = format!("{:x}", md5_hash(&text));
+                    let text_hash = text_hash(&text);
                     if vector_store.store_embedding(book_id, &embedding, &model, Some(&text_hash)).is_ok() {
                         db.update_embedding_status(book_id, "complete")?;
                         processed += 1;
@@ -283,14 +330,9 @@ pub async fn process_pending_embeddings(
     Ok(processed)
 }
 
-/// Simple MD5 hash for text (used for change detection)
-fn md5_hash(text: &str) -> u128 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    text.hash(&mut hasher);
-    hasher.finish() as u128
+/// Simple hash for text change detection (delegates to shared function)
+fn text_hash(text: &str) -> String {
+    crate::ollama::text_hash(text)
 }
 
 #[cfg(test)]
@@ -298,10 +340,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_md5_hash() {
-        let hash1 = md5_hash("hello world");
-        let hash2 = md5_hash("hello world");
-        let hash3 = md5_hash("different text");
+    fn test_text_hash() {
+        let hash1 = text_hash("hello world");
+        let hash2 = text_hash("hello world");
+        let hash3 = text_hash("different text");
 
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);

@@ -95,6 +95,7 @@ pub async fn prioritize_book(
 }
 
 /// Process a batch of pending embeddings
+/// Generates LLM summaries then embeds them. Respects pause flag for safe stop/resume.
 /// Returns the number of embeddings processed
 #[tauri::command]
 pub async fn process_embeddings_batch(
@@ -107,6 +108,17 @@ pub async fn process_embeddings_batch(
 
     let batch_size = batch_size.unwrap_or(10) as usize;
     let start = Instant::now();
+
+    // Check if processing is paused before starting
+    if state.is_processing_paused() {
+        let stats = state.db.get_stats().map_err(|e| e.to_string())?;
+        return Ok(ProcessingResult {
+            processed: 0,
+            failed: 0,
+            remaining: stats.pending_embeddings,
+            duration_ms: 0,
+        });
+    }
 
     // Get pending books
     let pending_books = state.db.get_pending_embedding_books(batch_size as i64)
@@ -127,44 +139,57 @@ pub async fn process_embeddings_batch(
         (ollama.endpoint().to_string(), ollama.model().to_string())
     };
 
-    let client = OllamaClient::new(endpoint, model.clone());
+    let client = OllamaClient::new(endpoint.clone(), model.clone());
+
+    // Read chat model once before the loop to avoid per-book settings reads
+    let settings = state.db.get_settings().map_err(|e| e.to_string())?;
+    let chat_model = settings.ollama_chat_model;
 
     let mut processed = 0;
     let mut failed = 0;
 
     for book_id in &pending_books {
-        // Check if already has embedding
+        if state.is_processing_paused() {
+            tracing::info!("Processing paused by user after {} books in this batch", processed);
+            break;
+        }
+
         if state.vector_store.has_embedding(*book_id) {
             state.db.update_embedding_status(*book_id, "complete").ok();
             processed += 1;
             continue;
         }
 
-        // Get book and generate embedding
         if let Ok(book) = state.db.get_book(*book_id) {
-            // PROTECTION: Skip books without description - embeddings from titles only are meaningless
-            if book.description.is_none() || book.description.as_ref().map(|d| d.trim().is_empty()).unwrap_or(true) {
-                // Mark as "needs_metadata" so it's not retried until metadata is parsed
-                state.db.update_embedding_status(*book_id, "needs_metadata").ok();
-                tracing::debug!("Skipping book {} - no description available", book.title);
-                continue;
-            }
+            let tags = state.db.get_book_tags(*book_id).unwrap_or_default();
+            let chapter_titles = state.db.get_book_chapter_titles(*book_id).unwrap_or_default();
 
-            let text = crate::ollama::book_to_embedding_text(
-                &book.title,
-                book.author.as_deref(),
-                book.description.as_deref(),
-                book.series.as_deref(),
-            );
+            let text = match crate::ollama::get_or_generate_summary(
+                &state.db, &endpoint, &chat_model,
+                *book_id, &book, &tags, &chapter_titles,
+            ).await {
+                Ok(summary) => summary,
+                Err(e) => {
+                    tracing::debug!("Summary unavailable for book {}: {}, using metadata", book_id, e);
+                    crate::ollama::book_to_embedding_text(
+                        &book.title,
+                        book.author.as_deref(),
+                        book.description.as_deref(),
+                        book.series.as_deref(),
+                        Some(&tags),
+                        Some(&chapter_titles),
+                    )
+                }
+            };
 
             match client.embed(&text).await {
                 Ok(embedding) => {
-                    if state.vector_store.store_embedding(*book_id, &embedding, &model, None).is_ok() {
+                    let hash = crate::ollama::text_hash(&text);
+                    if state.vector_store.store_embedding(*book_id, &embedding, &model, Some(&hash)).is_ok() {
                         state.db.update_embedding_status(*book_id, "complete").ok();
                         processed += 1;
                         tracing::info!("Generated embedding for: {}", book.title);
 
-                        // Create graph edges to similar books
                         let similar = state.vector_store.find_similar_to_book(*book_id, 20);
                         if !similar.is_empty() {
                             let mut edges_to_insert = Vec::new();
@@ -173,13 +198,12 @@ pub async fn process_embeddings_batch(
                                     continue;
                                 }
                                 if let Ok(target_book) = state.db.get_book(target_id) {
-                                    let (weight, edge_type) = crate::graph::compute_edge_weight(
-                                        &book,
-                                        &target_book,
-                                        Some(similarity),
-                                    );
-                                    if weight >= 0.3 {
-                                        edges_to_insert.push((*book_id, target_id, edge_type, weight));
+                                    for (weight, edge_type) in crate::graph::compute_all_edge_weights(
+                                        &book, &target_book, Some(similarity),
+                                    ) {
+                                        if weight >= 0.3 {
+                                            edges_to_insert.push((*book_id, target_id, edge_type, weight));
+                                        }
                                     }
                                 }
                             }
@@ -200,7 +224,6 @@ pub async fn process_embeddings_batch(
         }
     }
 
-    // Get remaining count
     let stats = state.db.get_stats().map_err(|e| e.to_string())?;
 
     Ok(ProcessingResult {

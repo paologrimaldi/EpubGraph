@@ -210,7 +210,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             ollama_endpoint: "http://localhost:11434".to_string(),
-            ollama_model: "nomic-embed-text".to_string(),
+            ollama_model: "qwen3-embedding:8b".to_string(),
             ollama_chat_model: "mistral:7b".to_string(),
             embedding_batch_size: 10,
             max_recommendations: 20,

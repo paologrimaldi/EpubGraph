@@ -60,6 +60,17 @@ impl EpubParser {
             .map(|m| m.value.clone())
             .filter(|id| id.starts_with("978") || id.starts_with("979") || id.contains("isbn"));
 
+        // Extract dc:subject tags (multiple allowed)
+        let subjects: Vec<String> = doc
+            .metadata
+            .iter()
+            .filter(|m| m.property == "subject")
+            .map(|m| m.value.clone())
+            .collect();
+
+        // Extract chapter titles from TOC
+        let chapter_titles = extract_chapter_titles(&doc.toc);
+
         // Extract series info from calibre metadata or title parsing
         let (series, series_index) = extract_series_info(&title, &doc);
 
@@ -86,6 +97,8 @@ impl EpubParser {
             publish_date,
             isbn,
             source: "scan".to_string(),
+            subjects,
+            chapter_titles,
         })
     }
     
@@ -112,6 +125,20 @@ impl Default for EpubParser {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Extract chapter titles from EPUB TOC navigation points (flattened)
+fn extract_chapter_titles(toc: &[epub::doc::NavPoint]) -> Vec<String> {
+    let mut titles = Vec::new();
+    for nav in toc {
+        let label = nav.label.trim().to_string();
+        if !label.is_empty() {
+            titles.push(label);
+        }
+        // Recurse into children
+        titles.extend(extract_chapter_titles(&nav.children));
+    }
+    titles
 }
 
 /// Extract series information from title or calibre metadata

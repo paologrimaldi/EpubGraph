@@ -2,6 +2,7 @@
 //!
 //! Integration with local Ollama for embedding generation
 
+use crate::vector::EMBEDDING_DIM;
 use crate::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 
@@ -115,8 +116,9 @@ impl OllamaClient {
         
         let result: EmbeddingResponse = response.json().await
             .map_err(|e| AppError::Ollama(format!("Failed to parse response: {}", e)))?;
-        
-        Ok(result.embedding)
+
+        // Apply MRL truncation and L2 normalization
+        Ok(truncate_and_normalize(&result.embedding, EMBEDDING_DIM))
     }
     
     /// Generate embeddings for multiple texts (batched)
@@ -229,35 +231,146 @@ pub fn book_to_embedding_text(
     author: Option<&str>,
     description: Option<&str>,
     series: Option<&str>,
+    subjects: Option<&[String]>,
+    chapter_titles: Option<&[String]>,
 ) -> String {
     let mut parts = vec![format!("Title: {}", title)];
-    
+
     if let Some(author) = author {
         parts.push(format!("Author: {}", author));
     }
-    
+
     if let Some(series) = series {
         parts.push(format!("Series: {}", series));
     }
-    
-    if let Some(description) = description {
-        // Truncate description to avoid token limits
-        // Use char_indices to find a valid UTF-8 boundary
-        let desc = if description.len() > 1000 {
-            let truncate_at = description
-                .char_indices()
-                .take_while(|(i, _)| *i < 1000)
-                .last()
-                .map(|(i, c)| i + c.len_utf8())
-                .unwrap_or(0);
-            format!("{}...", &description[..truncate_at])
-        } else {
-            description.to_string()
-        };
-        parts.push(format!("Description: {}", desc));
+
+    if let Some(subjects) = subjects {
+        if !subjects.is_empty() {
+            parts.push(format!("Subjects: {}", subjects.join(", ")));
+        }
     }
-    
+
+    if let Some(description) = description {
+        // With 40K context model, we can use more description text
+        let desc = truncate_str(description, 4000);
+        if desc.len() < description.len() {
+            parts.push(format!("Description: {}...", desc));
+        } else {
+            parts.push(format!("Description: {}", desc));
+        }
+    }
+
+    if let Some(chapters) = chapter_titles {
+        if !chapters.is_empty() {
+            // Include up to 50 chapter titles
+            let titles: Vec<&str> = chapters.iter().take(50).map(|s| s.as_str()).collect();
+            parts.push(format!("Chapters: {}", titles.join(", ")));
+        }
+    }
+
     parts.join("\n")
+}
+
+/// Hash text for change detection. Uses SipHash (fast, non-cryptographic).
+pub fn text_hash(text: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:x}", hasher.finish() as u128)
+}
+
+/// Truncate a string at a UTF-8 safe boundary, returning at most `max_bytes` bytes.
+pub fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let truncate_at = s
+        .char_indices()
+        .take_while(|(i, _)| *i < max_bytes)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    &s[..truncate_at]
+}
+
+/// Build the LLM prompt context string from book metadata.
+/// Shared by all summary generation paths.
+pub fn build_summary_context(
+    book: &crate::db::Book,
+    tags: &[String],
+    chapter_titles: &[String],
+) -> String {
+    let mut context = format!("Title: {}\n", book.title);
+    if let Some(ref author) = book.author {
+        context.push_str(&format!("Author: {}\n", author));
+    }
+    if let Some(ref series) = book.series {
+        context.push_str(&format!("Series: {}\n", series));
+    }
+    if !tags.is_empty() {
+        context.push_str(&format!("Subjects: {}\n", tags.join(", ")));
+    }
+    if let Some(ref description) = book.description {
+        context.push_str(&format!("Description: {}\n", truncate_str(description, 3000)));
+    }
+    if !chapter_titles.is_empty() {
+        let titles: Vec<&str> = chapter_titles.iter().take(30).map(|s| s.as_str()).collect();
+        context.push_str(&format!("Chapter titles: {}\n", titles.join(", ")));
+    }
+    context
+}
+
+const SUMMARY_PROMPT_PREFIX: &str =
+    "Based on the following book information, write a concise 200-word summary focusing on \
+     themes, genre, setting, writing style, target audience, and comparable works. \
+     Do not include any preamble, just the summary.\n\n";
+
+/// Get a cached summary or generate one via LLM chat.
+/// `chat_model` and `endpoint` should be read once by the caller, not per-book.
+pub async fn get_or_generate_summary(
+    db: &crate::db::Database,
+    endpoint: &str,
+    chat_model: &str,
+    book_id: i64,
+    book: &crate::db::Book,
+    tags: &[String],
+    chapter_titles: &[String],
+) -> crate::AppResult<String> {
+    if let Some(summary) = db.get_book_summary(book_id)? {
+        return Ok(summary);
+    }
+
+    let context = build_summary_context(book, tags, chapter_titles);
+    let prompt = format!("{}{}", SUMMARY_PROMPT_PREFIX, context);
+
+    let client = OllamaClient::new(endpoint.to_string(), chat_model.to_string());
+    let summary = client.chat(chat_model, &prompt).await?;
+    let summary = summary.trim().to_string();
+
+    let hash = text_hash(&context);
+    db.store_book_summary(book_id, &summary, chat_model, Some(&hash))?;
+
+    tracing::info!("Generated LLM summary for book {}: {}", book_id, book.title);
+    Ok(summary)
+}
+
+/// Truncate embedding to `target_dim` dimensions (MRL) and L2-normalize.
+/// If the embedding is already <= target_dim, it is only normalized.
+fn truncate_and_normalize(embedding: &[f32], target_dim: usize) -> Vec<f32> {
+    let truncated = if embedding.len() > target_dim {
+        &embedding[..target_dim]
+    } else {
+        embedding
+    };
+
+    // L2 normalize
+    let norm: f32 = truncated.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        truncated.iter().map(|x| x / norm).collect()
+    } else {
+        truncated.to_vec()
+    }
 }
 
 #[cfg(test)]
@@ -266,15 +379,21 @@ mod tests {
     
     #[test]
     fn test_embedding_text_generation() {
+        let subjects = vec!["Fiction".to_string(), "Classic".to_string()];
+        let chapters = vec!["Chapter 1".to_string(), "Chapter 2".to_string()];
         let text = book_to_embedding_text(
             "The Great Gatsby",
             Some("F. Scott Fitzgerald"),
             Some("A story about the American Dream"),
             None,
+            Some(&subjects),
+            Some(&chapters),
         );
-        
+
         assert!(text.contains("The Great Gatsby"));
         assert!(text.contains("F. Scott Fitzgerald"));
         assert!(text.contains("American Dream"));
+        assert!(text.contains("Fiction, Classic"));
+        assert!(text.contains("Chapter 1, Chapter 2"));
     }
 }

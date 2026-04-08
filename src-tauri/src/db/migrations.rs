@@ -4,7 +4,7 @@ use crate::AppResult;
 use rusqlite::Connection;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> AppResult<()> {
@@ -34,6 +34,9 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     }
     if current_version < 2 {
         migrate_v2(conn)?;
+    }
+    if current_version < 3 {
+        migrate_v3(conn)?;
     }
 
     Ok(())
@@ -235,7 +238,7 @@ fn migrate_v1(conn: &Connection) -> AppResult<()> {
         -- Default settings
         INSERT OR IGNORE INTO settings (key, value) VALUES
             ('ollama_endpoint', 'http://localhost:11434'),
-            ('ollama_model', 'nomic-embed-text'),
+            ('ollama_model', 'qwen3-embedding:8b'),
             ('embedding_batch_size', '10'),
             ('max_recommendations', '20'),
             ('auto_scan_enabled', '1'),
@@ -294,5 +297,44 @@ fn migrate_v2(conn: &Connection) -> AppResult<()> {
     )?;
 
     tracing::info!("Migration v2 applied successfully");
+    Ok(())
+}
+
+/// Embedding enrichment migration: book summaries, chapter titles storage
+fn migrate_v3(conn: &Connection) -> AppResult<()> {
+    tracing::info!("Applying migration v3: Embedding enrichment tables");
+
+    conn.execute_batch(r#"
+        -- ============================================
+        -- BOOK SUMMARIES (LLM-generated for embedding)
+        -- ============================================
+
+        CREATE TABLE IF NOT EXISTS book_summaries (
+            book_id INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+            summary TEXT NOT NULL,
+            model TEXT NOT NULL,
+            text_hash TEXT,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+
+        -- ============================================
+        -- CHAPTER TITLES (extracted from EPUB TOC)
+        -- ============================================
+
+        -- Store chapter titles as JSON array on the books table
+        ALTER TABLE books ADD COLUMN chapter_titles_json TEXT;
+
+        -- Update default embedding model setting
+        INSERT OR REPLACE INTO settings (key, value, updated_at)
+            VALUES ('ollama_model', 'qwen3-embedding:8b', strftime('%s', 'now'));
+    "#)?;
+
+    // Record migration
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?)",
+        [3],
+    )?;
+
+    tracing::info!("Migration v3 applied successfully");
     Ok(())
 }

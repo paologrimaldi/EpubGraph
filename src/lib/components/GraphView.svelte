@@ -16,22 +16,47 @@
 	let hoveredNode: string | null = null;
 	let Graph: any = null;
 	let SigmaClass: any = null;
-	let loadingCenterId: number | null = null; // Track which book we're loading
+	let loadingCenterId: number | null = null;
+	let isDark = false;
 
-	// Color scheme for different edge types
-	const edgeColors: Record<string, string> = {
-		content: '#3b82f6', // blue
-		author: '#10b981', // green
-		series: '#f59e0b', // amber
-		tag: '#8b5cf6', // purple
-		user: '#ef4444' // red
+	// Obsidian-inspired palette — luminous, muted tones that glow on dark canvas
+	const nodeColorsLight = {
+		center: '#d94f72',
+		rated: '#c08a3e',
+		default: '#6366a0'
 	};
 
-	const nodeColors = {
-		center: '#ef4444', // red for center node
-		rated: '#f59e0b', // amber for rated books
-		default: '#6366f1' // indigo for others
+	const nodeColorsDark = {
+		center: '#f0799a',
+		rated: '#e8b86d',
+		default: '#9b9ed8'
 	};
+
+	const edgeColorsLight: Record<string, string> = {
+		content: '#6898c4',
+		author: '#5aab88',
+		series: '#c49a4a',
+		tag: '#8a72b8',
+		user: '#c46a6a'
+	};
+
+	const edgeColorsDark: Record<string, string> = {
+		content: '#5b9bd5',
+		author: '#6bc5a0',
+		series: '#d4a65a',
+		tag: '#a78bdb',
+		user: '#db7b7b'
+	};
+
+	$: nodeColors = isDark ? nodeColorsDark : nodeColorsLight;
+	$: edgeColors = isDark ? edgeColorsDark : edgeColorsLight;
+
+	function detectTheme() {
+		if (!browser) return;
+		isDark =
+			document.documentElement.classList.contains('dark') ||
+			document.documentElement.getAttribute('data-theme') === 'dark';
+	}
 
 	async function loadGraphData() {
 		if (!browser || centerId === null) {
@@ -53,13 +78,9 @@
 				maxNodes
 			});
 
-			// Ignore stale responses if user switched to different book
 			if (loadingCenterId !== requestedCenterId) {
-				console.log('Ignoring stale graph response for', requestedCenterId);
 				return;
 			}
-
-			console.log('Graph data received:', { nodes: data.nodes.length, edges: data.edges.length, centerId: requestedCenterId });
 
 			if (data.nodes.length === 0) {
 				error = 'No graph data available for this book. Try rebuilding the book graph in Settings.';
@@ -67,7 +88,6 @@
 				renderGraph(data);
 			}
 		} catch (e) {
-			// Ignore errors for stale requests
 			if (loadingCenterId !== requestedCenterId) {
 				return;
 			}
@@ -83,58 +103,57 @@
 	let pendingData: GraphData | null = null;
 
 	function renderGraph(data: GraphData) {
-		// Clean up existing graph
 		if (sigma) {
 			sigma.kill();
 			sigma = null;
 		}
 
 		if (data.nodes.length === 0 || !Graph || !SigmaClass) {
-			console.log('renderGraph: missing libraries or no nodes', { nodes: data.nodes.length, Graph: !!Graph, SigmaClass: !!SigmaClass });
 			return;
 		}
 
-		// If container isn't ready yet, store data and retry
 		if (!container) {
-			console.log('renderGraph: container not ready, will retry');
 			pendingData = data;
 			return;
 		}
 
-		// Create new graph
+		detectTheme();
+
+		const currentNodeColors = isDark ? nodeColorsDark : nodeColorsLight;
+		const currentEdgeColors = isDark ? edgeColorsDark : edgeColorsLight;
+
 		graph = new Graph();
 
-		// Add nodes with positions (force layout will be applied)
 		const nodeCount = data.nodes.length;
 		data.nodes.forEach((node, index) => {
 			const angle = (2 * Math.PI * index) / nodeCount;
 			const radius = node.id === centerId ? 0 : 5 + Math.random() * 5;
 
+			const isCenter = node.id === centerId;
+			const color = isCenter
+				? currentNodeColors.center
+				: node.rating
+					? currentNodeColors.rated
+					: currentNodeColors.default;
+
 			graph!.addNode(String(node.id), {
 				label: truncateTitle(node.title, 30),
 				x: radius * Math.cos(angle),
 				y: radius * Math.sin(angle),
-				size: node.id === centerId ? 20 : 10 + (node.rating || 0) * 2,
-				color:
-					node.id === centerId
-						? nodeColors.center
-						: node.rating
-							? nodeColors.rated
-							: nodeColors.default,
-				// Store original data
+				size: isCenter ? 18 : 8 + (node.rating || 0) * 1.5,
+				color,
 				originalData: node
 			});
 		});
 
-		// Add edges
 		data.edges.forEach((edge, index) => {
 			const sourceStr = String(edge.source);
 			const targetStr = String(edge.target);
 
 			if (graph!.hasNode(sourceStr) && graph!.hasNode(targetStr)) {
 				graph!.addEdge(sourceStr, targetStr, {
-					size: 1 + edge.weight * 3,
-					color: edgeColors[edge.edgeType] || '#94a3b8',
+					size: 0.5 + edge.weight * 1.5,
+					color: currentEdgeColors[edge.edgeType] || '#94a3b8',
 					type: 'arrow',
 					label: edge.edgeType,
 					weight: edge.weight
@@ -142,27 +161,90 @@
 			}
 		});
 
-		// Apply force-directed layout
 		applyForceLayout();
 
-		// Create Sigma renderer
+		const labelColor = isDark ? '#c8c8cd' : '#3a3a3c';
+		const hoverBg = isDark ? '#1c1c1e' : '#ffffff';
+		const hoverShadow = isDark ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.15)';
+		const fadedColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+
+		// Custom hover renderer — theme-aware background color
+		function drawNodeHover(
+			context: CanvasRenderingContext2D,
+			data: Record<string, any>,
+			settings: Record<string, any>
+		) {
+			const size = settings.labelSize;
+			const font = settings.labelFont;
+			const weight = settings.labelWeight;
+			context.font = `${weight} ${size}px ${font}`;
+
+			context.fillStyle = hoverBg;
+			context.shadowOffsetX = 0;
+			context.shadowOffsetY = 0;
+			context.shadowBlur = 8;
+			context.shadowColor = hoverShadow;
+
+			const PADDING = 2;
+			if (typeof data.label === 'string') {
+				const textWidth = context.measureText(data.label).width;
+				const boxWidth = Math.round(textWidth + 5);
+				const boxHeight = Math.round(size + 2 * PADDING);
+				const radius = Math.max(data.size, size / 2) + PADDING;
+				const angleRadian = Math.asin(boxHeight / 2 / radius);
+				const xDeltaCoord = Math.sqrt(Math.abs(radius * radius - (boxHeight / 2) * (boxHeight / 2)));
+
+				context.beginPath();
+				context.moveTo(data.x + xDeltaCoord, data.y + boxHeight / 2);
+				context.lineTo(data.x + radius + boxWidth, data.y + boxHeight / 2);
+				context.lineTo(data.x + radius + boxWidth, data.y - boxHeight / 2);
+				context.lineTo(data.x + xDeltaCoord, data.y - boxHeight / 2);
+				context.arc(data.x, data.y, radius, angleRadian, -angleRadian);
+				context.closePath();
+				context.fill();
+			} else {
+				context.beginPath();
+				context.arc(data.x, data.y, data.size + PADDING, 0, Math.PI * 2);
+				context.closePath();
+				context.fill();
+			}
+
+			context.shadowBlur = 0;
+
+			// Draw label text
+			if (data.label) {
+				const color = settings.labelColor.color || labelColor;
+				context.fillStyle = color;
+				context.font = `${weight} ${size}px ${font}`;
+				context.fillText(data.label, data.x + data.size + 3, data.y + size / 3);
+			}
+		}
+
 		sigma = new SigmaClass(graph, container, {
 			renderEdgeLabels: false,
-			defaultNodeColor: nodeColors.default,
+			defaultNodeColor: currentNodeColors.default,
 			defaultEdgeColor: '#94a3b8',
-			labelFont: 'Inter, system-ui, sans-serif',
-			labelSize: 12,
-			labelWeight: '500',
-			labelColor: { color: '#1f2937' },
-			stagePadding: 50,
+			labelFont: "'SF Pro Text', -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+			labelSize: 11,
+			labelWeight: '400',
+			labelColor: { color: labelColor },
+			stagePadding: 60,
+			zIndex: true,
+			defaultDrawNodeHover: drawNodeHover,
 			nodeReducer: (node: string, data: Record<string, any>) => {
 				const res = { ...data };
 				if (hoveredNode) {
-					if (node === hoveredNode || graph?.hasEdge(node, hoveredNode) || graph?.hasEdge(hoveredNode, node)) {
+					if (
+						node === hoveredNode ||
+						graph?.hasEdge(node, hoveredNode) ||
+						graph?.hasEdge(hoveredNode, node)
+					) {
 						res.highlighted = true;
+						res.zIndex = 1;
 					} else {
-						res.color = '#d1d5db';
+						res.color = fadedColor;
 						res.label = '';
+						res.zIndex = 0;
 					}
 				}
 				return res;
@@ -173,20 +255,23 @@
 					const [source, target] = graph!.extremities(edge);
 					if (source !== hoveredNode && target !== hoveredNode) {
 						res.hidden = true;
+					} else {
+						res.size = (data.size || 1) * 2;
 					}
 				}
 				return res;
 			}
 		});
 
-		// Event handlers
 		sigma.on('enterNode', ({ node }: { node: string }) => {
 			hoveredNode = node;
+			if (container) container.style.cursor = 'pointer';
 			sigma?.refresh();
 		});
 
 		sigma.on('leaveNode', () => {
 			hoveredNode = null;
+			if (container) container.style.cursor = 'grab';
 			sigma?.refresh();
 		});
 
@@ -198,31 +283,42 @@
 		});
 	}
 
+	function hexToRgba(hex: string, alpha: number): string {
+		if (hex.startsWith('rgba') || hex.startsWith('rgb')) return hex;
+		const r = parseInt(hex.slice(1, 3), 16);
+		const g = parseInt(hex.slice(3, 5), 16);
+		const b = parseInt(hex.slice(5, 7), 16);
+		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+	}
+
 	function applyForceLayout() {
 		if (!graph) return;
 
-		// Simple force-directed layout
 		const iterations = 100;
-		const k = 1; // Optimal distance
+		const k = 1;
 		const gravity = 0.1;
 		const speed = 0.1;
 
 		for (let iter = 0; iter < iterations; iter++) {
 			const forces: Map<string, { x: number; y: number }> = new Map();
 
-			// Initialize forces
 			graph.forEachNode((node: string) => {
 				forces.set(node, { x: 0, y: 0 });
 			});
 
-			// Repulsive forces between all nodes
 			graph.forEachNode((nodeA: string) => {
-				const posA = { x: graph!.getNodeAttribute(nodeA, 'x'), y: graph!.getNodeAttribute(nodeA, 'y') };
+				const posA = {
+					x: graph!.getNodeAttribute(nodeA, 'x'),
+					y: graph!.getNodeAttribute(nodeA, 'y')
+				};
 
 				graph!.forEachNode((nodeB: string) => {
 					if (nodeA === nodeB) return;
 
-					const posB = { x: graph!.getNodeAttribute(nodeB, 'x'), y: graph!.getNodeAttribute(nodeB, 'y') };
+					const posB = {
+						x: graph!.getNodeAttribute(nodeB, 'x'),
+						y: graph!.getNodeAttribute(nodeB, 'y')
+					};
 					const dx = posA.x - posB.x;
 					const dy = posA.y - posB.y;
 					const distance = Math.sqrt(dx * dx + dy * dy) || 0.1;
@@ -234,39 +330,49 @@
 				});
 			});
 
-			// Attractive forces along edges
-			graph.forEachEdge((edge: string, attrs: Record<string, any>, source: string, target: string) => {
-				const posA = { x: graph!.getNodeAttribute(source, 'x'), y: graph!.getNodeAttribute(source, 'y') };
-				const posB = { x: graph!.getNodeAttribute(target, 'x'), y: graph!.getNodeAttribute(target, 'y') };
+			graph.forEachEdge(
+				(edge: string, attrs: Record<string, any>, source: string, target: string) => {
+					const posA = {
+						x: graph!.getNodeAttribute(source, 'x'),
+						y: graph!.getNodeAttribute(source, 'y')
+					};
+					const posB = {
+						x: graph!.getNodeAttribute(target, 'x'),
+						y: graph!.getNodeAttribute(target, 'y')
+					};
 
-				const dx = posB.x - posA.x;
-				const dy = posB.y - posA.y;
-				const distance = Math.sqrt(dx * dx + dy * dy) || 0.1;
-				const force = (distance * distance) / k;
+					const dx = posB.x - posA.x;
+					const dy = posB.y - posA.y;
+					const distance = Math.sqrt(dx * dx + dy * dy) || 0.1;
+					const force = (distance * distance) / k;
 
-				const forceA = forces.get(source)!;
-				const forceB = forces.get(target)!;
+					const forceA = forces.get(source)!;
+					const forceB = forces.get(target)!;
 
-				forceA.x += (dx / distance) * force * 0.5;
-				forceA.y += (dy / distance) * force * 0.5;
-				forceB.x -= (dx / distance) * force * 0.5;
-				forceB.y -= (dy / distance) * force * 0.5;
-			});
+					forceA.x += (dx / distance) * force * 0.5;
+					forceA.y += (dy / distance) * force * 0.5;
+					forceB.x -= (dx / distance) * force * 0.5;
+					forceB.y -= (dy / distance) * force * 0.5;
+				}
+			);
 
-			// Apply gravity towards center
 			graph.forEachNode((node: string) => {
-				const pos = { x: graph!.getNodeAttribute(node, 'x'), y: graph!.getNodeAttribute(node, 'y') };
+				const pos = {
+					x: graph!.getNodeAttribute(node, 'x'),
+					y: graph!.getNodeAttribute(node, 'y')
+				};
 				const forceN = forces.get(node)!;
 				forceN.x -= pos.x * gravity;
 				forceN.y -= pos.y * gravity;
 			});
 
-			// Update positions
 			graph.forEachNode((node: string) => {
-				// Don't move center node
 				if (node === String(centerId)) return;
 
-				const pos = { x: graph!.getNodeAttribute(node, 'x'), y: graph!.getNodeAttribute(node, 'y') };
+				const pos = {
+					x: graph!.getNodeAttribute(node, 'x'),
+					y: graph!.getNodeAttribute(node, 'y')
+				};
 				const force = forces.get(node)!;
 
 				const displacement = Math.sqrt(force.x * force.x + force.y * force.y);
@@ -274,8 +380,16 @@
 
 				if (displacement > 0) {
 					const limitedDisp = Math.min(displacement, maxDisplacement);
-					graph!.setNodeAttribute(node, 'x', pos.x + (force.x / displacement) * limitedDisp * speed);
-					graph!.setNodeAttribute(node, 'y', pos.y + (force.y / displacement) * limitedDisp * speed);
+					graph!.setNodeAttribute(
+						node,
+						'x',
+						pos.x + (force.x / displacement) * limitedDisp * speed
+					);
+					graph!.setNodeAttribute(
+						node,
+						'y',
+						pos.y + (force.y / displacement) * limitedDisp * speed
+					);
 				}
 			});
 		}
@@ -307,11 +421,30 @@
 		}
 	}
 
+	// Watch for theme changes
+	let themeObserver: MutationObserver | null = null;
+
 	onMount(async () => {
 		if (!browser) return;
 
+		detectTheme();
+
+		// Observe theme changes on <html>
+		themeObserver = new MutationObserver(() => {
+			const wasDark = isDark;
+			detectTheme();
+			if (wasDark !== isDark && graph && centerId !== null) {
+				// Re-render with new colors
+				const data = extractGraphData();
+				if (data) renderGraph(data);
+			}
+		});
+		themeObserver.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['class', 'data-theme']
+		});
+
 		try {
-			// Dynamically import Sigma and Graphology (WebGL libraries)
 			const [graphologyModule, sigmaModule] = await Promise.all([
 				import('graphology'),
 				import('sigma')
@@ -327,79 +460,104 @@
 		}
 	});
 
+	function extractGraphData(): GraphData | null {
+		if (!graph) return null;
+		const nodes: GraphNode[] = [];
+		const edges: GraphEdge[] = [];
+		graph.forEachNode((node: string, attrs: Record<string, any>) => {
+			if (attrs.originalData) nodes.push(attrs.originalData);
+		});
+		graph.forEachEdge(
+			(edge: string, attrs: Record<string, any>, source: string, target: string) => {
+				edges.push({
+					source: parseInt(source),
+					target: parseInt(target),
+					weight: attrs.weight || 0,
+					edgeType: attrs.label || 'content'
+				});
+			}
+		);
+		return { nodes, edges };
+	}
+
 	onDestroy(() => {
 		if (sigma) {
 			sigma.kill();
 		}
+		if (themeObserver) {
+			themeObserver.disconnect();
+		}
 	});
 
-	// Reload when centerId, depth, or maxNodes changes (only if libraries are loaded)
 	$: if (browser && centerId !== null && Graph && SigmaClass && depth && maxNodes) {
 		loadGraphData();
 	}
 
-	// Retry rendering when container becomes available
 	$: if (container && pendingData) {
-		console.log('Container now available, rendering pending graph data');
 		const data = pendingData;
 		pendingData = null;
 		renderGraph(data);
 	}
 </script>
 
-<div class="relative w-full h-full bg-surface-50 dark:bg-surface-900 rounded-lg overflow-hidden">
+<div class="graph-canvas" class:is-dark={isDark}>
+	<!-- Ambient glow overlay -->
+	<div class="graph-ambient"></div>
+
 	{#if loading}
-		<div class="absolute inset-0 flex items-center justify-center">
-			<div class="text-center">
-				<div
-					class="animate-spin rounded-full h-8 w-8 border-2 border-primary-500 border-t-transparent mx-auto mb-2"
-				></div>
-				<p class="text-surface-500 text-sm">Loading graph...</p>
+		<div class="graph-state-overlay">
+			<div class="graph-state-content">
+				<div class="graph-spinner"></div>
+				<p class="graph-state-text">Loading graph...</p>
 			</div>
 		</div>
 	{:else if error}
-		<div class="absolute inset-0 flex items-center justify-center">
-			<div class="text-center text-red-500">
-				<p class="font-medium">Failed to load graph</p>
-				<p class="text-sm">{error}</p>
+		<div class="graph-state-overlay">
+			<div class="graph-state-content">
+				<svg class="graph-error-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="1.5"
+						d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+					/>
+				</svg>
+				<p class="graph-state-text" style="color: var(--gw-error)">{error}</p>
 			</div>
 		</div>
 	{:else if centerId === null}
-		<div class="absolute inset-0 flex items-center justify-center">
-			<div class="text-center text-surface-500">
-				<p>Select a book to view its relationship graph</p>
+		<div class="graph-state-overlay">
+			<div class="graph-state-content">
+				<svg class="graph-empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="1.5"
+						d="M7.5 3.75H6A2.25 2.25 0 003.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0120.25 6v1.5m0 9V18A2.25 2.25 0 0118 20.25h-1.5m-9 0H6A2.25 2.25 0 013.75 18v-1.5M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+					/>
+				</svg>
+				<p class="graph-state-text">Select a book to explore its connections</p>
 			</div>
 		</div>
 	{:else}
-		<!-- Graph container -->
-		<div bind:this={container} class="w-full h-full"></div>
+		<div bind:this={container} class="graph-renderer"></div>
 
-		<!-- Controls -->
-		<div class="absolute top-4 right-4 flex flex-col gap-2">
-			<button
-				on:click={zoomIn}
-				class="p-2 bg-white dark:bg-surface-800 rounded-lg shadow-md hover:bg-surface-50 dark:hover:bg-surface-700"
-				title="Zoom in"
-			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+		<!-- Floating glass controls -->
+		<div class="graph-controls">
+			<button on:click={zoomIn} class="graph-control-btn" title="Zoom in">
+				<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6" />
 				</svg>
 			</button>
-			<button
-				on:click={zoomOut}
-				class="p-2 bg-white dark:bg-surface-800 rounded-lg shadow-md hover:bg-surface-50 dark:hover:bg-surface-700"
-				title="Zoom out"
-			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<div class="graph-control-divider"></div>
+			<button on:click={zoomOut} class="graph-control-btn" title="Zoom out">
+				<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6" />
 				</svg>
 			</button>
-			<button
-				on:click={resetView}
-				class="p-2 bg-white dark:bg-surface-800 rounded-lg shadow-md hover:bg-surface-50 dark:hover:bg-surface-700"
-				title="Reset view"
-			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+			<div class="graph-control-divider"></div>
+			<button on:click={resetView} class="graph-control-btn" title="Reset view">
+				<svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path
 						stroke-linecap="round"
 						stroke-linejoin="round"
@@ -410,29 +568,221 @@
 			</button>
 		</div>
 
-		<!-- Legend -->
-		<div
-			class="absolute bottom-4 left-4 bg-white dark:bg-surface-800 rounded-lg shadow-md p-3 text-sm"
-		>
-			<p class="font-medium mb-2 text-surface-700 dark:text-surface-300">Edge Types</p>
-			<div class="space-y-1">
-				<div class="flex items-center gap-2">
-					<div class="w-4 h-0.5" style="background-color: {edgeColors.content}"></div>
-					<span class="text-surface-600 dark:text-surface-400">Similar Content</span>
+		<!-- Floating glass legend -->
+		<div class="graph-legend">
+			<p class="graph-legend-title">Connections</p>
+			<div class="graph-legend-items">
+				<div class="graph-legend-item">
+					<span class="graph-legend-line" style="background: {edgeColors.content}"></span>
+					<span class="graph-legend-label">Content</span>
 				</div>
-				<div class="flex items-center gap-2">
-					<div class="w-4 h-0.5" style="background-color: {edgeColors.author}"></div>
-					<span class="text-surface-600 dark:text-surface-400">Same Author</span>
+				<div class="graph-legend-item">
+					<span class="graph-legend-line" style="background: {edgeColors.author}"></span>
+					<span class="graph-legend-label">Author</span>
 				</div>
-				<div class="flex items-center gap-2">
-					<div class="w-4 h-0.5" style="background-color: {edgeColors.series}"></div>
-					<span class="text-surface-600 dark:text-surface-400">Same Series</span>
+				<div class="graph-legend-item">
+					<span class="graph-legend-line" style="background: {edgeColors.series}"></span>
+					<span class="graph-legend-label">Series</span>
 				</div>
-				<div class="flex items-center gap-2">
-					<div class="w-4 h-0.5" style="background-color: {edgeColors.tag}"></div>
-					<span class="text-surface-600 dark:text-surface-400">Shared Tags</span>
+				<div class="graph-legend-item">
+					<span class="graph-legend-line" style="background: {edgeColors.tag}"></span>
+					<span class="graph-legend-label">Tags</span>
 				</div>
 			</div>
 		</div>
 	{/if}
 </div>
+
+<style>
+	/* ---- Canvas ---- */
+	.graph-canvas {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		border-radius: 12px;
+		overflow: hidden;
+		background: #e8e8ec;
+	}
+
+	.graph-canvas.is-dark {
+		background: #0d0d0f;
+	}
+
+	/* Subtle radial ambient glow — gives depth like Obsidian */
+	.graph-ambient {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		z-index: 1;
+		background: radial-gradient(
+			ellipse 60% 50% at 50% 50%,
+			rgba(99, 102, 241, 0.03) 0%,
+			transparent 70%
+		);
+	}
+
+	.graph-canvas.is-dark .graph-ambient {
+		background: radial-gradient(
+			ellipse 60% 50% at 50% 50%,
+			rgba(139, 143, 216, 0.04) 0%,
+			transparent 70%
+		);
+	}
+
+	/* ---- Sigma renderer container ---- */
+	.graph-renderer {
+		width: 100%;
+		height: 100%;
+		cursor: grab;
+	}
+
+	.graph-renderer:active {
+		cursor: grabbing;
+	}
+
+	/* ---- State overlays ---- */
+	.graph-state-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2;
+	}
+
+	.graph-state-content {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.graph-state-text {
+		font-size: 13px;
+		color: var(--gw-fg-muted);
+		letter-spacing: -0.01em;
+	}
+
+	.graph-spinner {
+		width: 28px;
+		height: 28px;
+		border: 2px solid var(--gw-separator);
+		border-top-color: var(--gw-accent);
+		border-radius: 50%;
+		animation: graph-spin 0.8s linear infinite;
+	}
+
+	@keyframes graph-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.graph-error-icon {
+		width: 28px;
+		height: 28px;
+		color: var(--gw-error);
+		opacity: 0.7;
+	}
+
+	.graph-empty-icon {
+		width: 28px;
+		height: 28px;
+		color: var(--gw-fg-muted);
+		opacity: 0.5;
+	}
+
+	/* ---- Glass controls ---- */
+	.graph-controls {
+		position: absolute;
+		top: 16px;
+		right: 16px;
+		z-index: 10;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		-webkit-backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		border: 0.5px solid var(--gw-border);
+		border-radius: 10px;
+		box-shadow: var(--gw-shadow-glass);
+		overflow: hidden;
+	}
+
+	.graph-control-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 34px;
+		height: 34px;
+		color: var(--gw-fg-secondary);
+		transition: background 0.12s ease, color 0.12s ease;
+		cursor: pointer;
+		border: none;
+		background: transparent;
+	}
+
+	.graph-control-btn:hover {
+		background: var(--gw-surface-tint);
+		color: var(--gw-fg);
+	}
+
+	.graph-control-btn:active {
+		background: var(--gw-surface-elevated);
+	}
+
+	.graph-control-divider {
+		width: 18px;
+		height: 0.5px;
+		background: var(--gw-separator);
+	}
+
+	/* ---- Glass legend ---- */
+	.graph-legend {
+		position: absolute;
+		bottom: 16px;
+		left: 16px;
+		z-index: 10;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		-webkit-backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		border: 0.5px solid var(--gw-border);
+		border-radius: 10px;
+		box-shadow: var(--gw-shadow-glass);
+		padding: 10px 14px;
+	}
+
+	.graph-legend-title {
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--gw-fg-muted);
+		margin-bottom: 8px;
+	}
+
+	.graph-legend-items {
+		display: flex;
+		flex-direction: column;
+		gap: 5px;
+	}
+
+	.graph-legend-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.graph-legend-line {
+		width: 14px;
+		height: 2px;
+		border-radius: 1px;
+	}
+
+	.graph-legend-label {
+		font-size: 11px;
+		color: var(--gw-fg-secondary);
+		letter-spacing: -0.01em;
+	}
+</style>

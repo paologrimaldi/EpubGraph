@@ -185,6 +185,8 @@ pub async fn import_library(
                         publish_date: None,
                         isbn: exported_book.isbn.clone(),
                         source: "import".to_string(),
+                        subjects: vec![],
+                        chapter_titles: vec![],
                     };
                     if db.insert_book(&new_book).is_ok() {
                         books_imported += 1;

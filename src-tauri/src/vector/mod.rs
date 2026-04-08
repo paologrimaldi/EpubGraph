@@ -9,8 +9,9 @@ use parking_lot::RwLock;
 use rusqlite::{params, Connection};
 use std::sync::Arc;
 
-/// Dimension of nomic-embed-text embeddings
-pub const EMBEDDING_DIM: usize = 768;
+/// Dimension of embeddings after MRL truncation
+/// qwen3-embedding:8b produces 7168-dim vectors, truncated to 2048 via MRL
+pub const EMBEDDING_DIM: usize = 2048;
 
 /// Vector store for book embeddings
 pub struct VectorStore {
@@ -230,10 +231,13 @@ impl VectorStore {
             return None;
         }
 
-        let mut average = vec![0.0f32; EMBEDDING_DIM];
+        let dim = embeddings[0].len();
+        let mut average = vec![0.0f32; dim];
         for embedding in &embeddings {
             for (i, val) in embedding.iter().enumerate() {
-                average[i] += val;
+                if i < dim {
+                    average[i] += val;
+                }
             }
         }
 

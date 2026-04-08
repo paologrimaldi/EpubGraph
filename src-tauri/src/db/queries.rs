@@ -496,6 +496,38 @@ impl Database {
     }
     
     // ============================================
+    // SUMMARY OPERATIONS
+    // ============================================
+
+    /// Store an LLM-generated summary for a book
+    pub fn store_book_summary(&self, book_id: i64, summary: &str, model: &str, text_hash: Option<&str>) -> AppResult<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO book_summaries (book_id, summary, model, text_hash)
+                 VALUES (?, ?, ?, ?)",
+                params![book_id, summary, model, text_hash],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Get the LLM-generated summary for a book
+    pub fn get_book_summary(&self, book_id: i64) -> AppResult<Option<String>> {
+        self.with_conn(|conn| {
+            let result = conn.query_row(
+                "SELECT summary FROM book_summaries WHERE book_id = ?",
+                [book_id],
+                |row| row.get::<_, String>(0),
+            );
+            match result {
+                Ok(summary) => Ok(Some(summary)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(AppError::Database(e)),
+            }
+        })
+    }
+
+    // ============================================
     // EMBEDDING OPERATIONS
     // ============================================
 
@@ -619,8 +651,93 @@ impl Database {
     }
 
     // ============================================
-    // STATISTICS
+    // TAG OPERATIONS
     // ============================================
+
+    /// Store tags for a book (inserts tag if not exists, then links)
+    pub fn store_book_tags(&self, book_id: i64, tags: &[String]) -> AppResult<()> {
+        if tags.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+
+        for tag_name in tags {
+            let trimmed = tag_name.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Insert tag if not exists
+            tx.execute(
+                "INSERT OR IGNORE INTO tags (name) VALUES (?)",
+                params![trimmed],
+            )?;
+            // Get tag id
+            let tag_id: i64 = tx.query_row(
+                "SELECT id FROM tags WHERE name = ?",
+                params![trimmed],
+                |row| row.get(0),
+            )?;
+            // Link book to tag
+            tx.execute(
+                "INSERT OR IGNORE INTO book_tags (book_id, tag_id) VALUES (?, ?)",
+                params![book_id, tag_id],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Store chapter titles for a book (as JSON in chapter_titles_json column)
+    pub fn store_book_chapter_titles(&self, book_id: i64, titles: &[String]) -> AppResult<()> {
+        if titles.is_empty() {
+            return Ok(());
+        }
+        let json = serde_json::to_string(titles)
+            .map_err(|e| AppError::InvalidInput(format!("JSON serialize error: {}", e)))?;
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE books SET chapter_titles_json = ? WHERE id = ?",
+                params![json, book_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Get chapter titles for a book
+    pub fn get_book_chapter_titles(&self, book_id: i64) -> AppResult<Vec<String>> {
+        self.with_conn(|conn| {
+            let json: Option<String> = conn.query_row(
+                "SELECT chapter_titles_json FROM books WHERE id = ?",
+                [book_id],
+                |row| row.get(0),
+            ).unwrap_or(None);
+
+            match json {
+                Some(j) if !j.is_empty() => {
+                    serde_json::from_str(&j)
+                        .map_err(|e| AppError::InvalidInput(format!("JSON parse error: {}", e)))
+                }
+                _ => Ok(vec![]),
+            }
+        })
+    }
+
+    /// Get tags for a book
+    pub fn get_book_tags(&self, book_id: i64) -> AppResult<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT t.name FROM tags t
+                 INNER JOIN book_tags bt ON t.id = bt.tag_id
+                 WHERE bt.book_id = ?
+                 ORDER BY t.name"
+            )?;
+            let tags = stmt.query_map([book_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(tags)
+        })
+    }
 
     // ============================================
     // UP NEXT OPERATIONS
@@ -788,6 +905,10 @@ pub struct NewBook {
     pub publish_date: Option<String>,
     pub isbn: Option<String>,
     pub source: String,
+    /// dc:subject tags extracted from EPUB metadata
+    pub subjects: Vec<String>,
+    /// Chapter titles extracted from EPUB TOC/nav
+    pub chapter_titles: Vec<String>,
 }
 
 /// Book update data

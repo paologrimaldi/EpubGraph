@@ -80,7 +80,7 @@ impl AppState {
         // Initialize Ollama client with default settings
         let ollama = RwLock::new(OllamaClient::new(
             "http://localhost:11434".to_string(),
-            "nomic-embed-text".to_string(),
+            "qwen3-embedding:8b".to_string(),
         ));
 
         // Create job channel (unbounded for simplicity)

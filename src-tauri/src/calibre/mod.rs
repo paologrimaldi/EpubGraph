@@ -215,6 +215,8 @@ impl CalibreImporter {
                     publish_date: cb.pubdate.clone(),
                     isbn: cb.isbn.clone(),
                     source: "calibre".to_string(),
+                    subjects: vec![],
+                    chapter_titles: vec![],
                 })
             })
             .collect()

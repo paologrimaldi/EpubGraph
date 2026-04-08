@@ -280,13 +280,16 @@ pub async fn parse_metadata_batch(
                     state.db.update_embedding_status(book_id, "skipped").ok();
                     failed += 1;
                 } else {
-                    // If we got a description, mark it for embedding processing
-                    if parsed.description.is_some() {
-                        state.db.update_embedding_status(book_id, "pending").ok();
-                    } else {
-                        // No description in EPUB - mark as skipped
-                        state.db.update_embedding_status(book_id, "no_description").ok();
+                    // Store tags and chapter titles from EPUB
+                    if !parsed.subjects.is_empty() {
+                        state.db.store_book_tags(book_id, &parsed.subjects).ok();
                     }
+                    if !parsed.chapter_titles.is_empty() {
+                        state.db.store_book_chapter_titles(book_id, &parsed.chapter_titles).ok();
+                    }
+
+                    // With LLM summaries, we can generate embeddings even without descriptions
+                    state.db.update_embedding_status(book_id, "pending").ok();
                     success += 1;
                 }
             }

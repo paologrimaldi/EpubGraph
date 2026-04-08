@@ -50,8 +50,8 @@ pub async fn get_database_stats(
 
     // Get embeddings count and size
     let embeddings_count = state.vector_store.count().unwrap_or(0);
-    // Each embedding is 768 floats * 4 bytes = 3072 bytes
-    let embeddings_size_bytes = (embeddings_count as u64) * 768 * 4;
+    // Each embedding is EMBEDDING_DIM floats * 4 bytes
+    let embeddings_size_bytes = (embeddings_count as u64) * crate::vector::EMBEDDING_DIM as u64 * 4;
 
     Ok(DatabaseStats {
         database_size_bytes,
