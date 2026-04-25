@@ -4,6 +4,7 @@
 
 use crate::db::Database;
 use crate::epub::EpubParser;
+use crate::pdf::PdfParser;
 use crate::AppResult;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
@@ -107,7 +108,7 @@ impl LibraryWatcher {
         let paths: Vec<_> = event
             .paths
             .into_iter()
-            .filter(|p| is_epub_file(p))
+            .filter(|p| is_supported_book_file(p))
             .collect();
 
         if paths.is_empty() {
@@ -126,7 +127,6 @@ impl LibraryWatcher {
     fn handle_event(&self, event: &WatcherEvent, db: &Database) -> AppResult<()> {
         match event {
             WatcherEvent::FileCreated(paths) => {
-                let parser = EpubParser::new();
                 for path in paths {
                     // Check if already in database
                     if db.get_book_by_path(path.to_string_lossy().as_ref())?.is_some() {
@@ -134,7 +134,7 @@ impl LibraryWatcher {
                     }
 
                     // Parse and insert new book
-                    match parser.parse(path) {
+                    match parse_supported_book(path) {
                         Ok(new_book) => {
                             if let Ok(id) = db.insert_book(&new_book) {
                                 tracing::info!("Added new book from watcher: {} (id: {})", new_book.title, id);
@@ -147,14 +147,13 @@ impl LibraryWatcher {
                 }
             }
             WatcherEvent::FileModified(paths) => {
-                let parser = EpubParser::new();
                 for path in paths {
                     let path_str = path.to_string_lossy();
 
                     // Check if in database
                     if let Some(existing) = db.get_book_by_path(&path_str)? {
                         // Re-parse and update metadata
-                        if let Ok(new_book) = parser.parse(path) {
+                        if let Ok(new_book) = parse_supported_book(path) {
                             let update = crate::db::BookUpdate {
                                 title: Some(new_book.title),
                                 author: new_book.author,
@@ -227,11 +226,26 @@ pub enum WatcherEvent {
     FileDeleted(Vec<PathBuf>),
 }
 
-/// Check if a path is an EPUB file
-fn is_epub_file(path: &Path) -> bool {
+/// Check if a path is a supported book file
+fn is_supported_book_file(path: &Path) -> bool {
     path.extension()
-        .map(|ext| ext.eq_ignore_ascii_case("epub"))
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("epub") || ext.eq_ignore_ascii_case("pdf"))
         .unwrap_or(false)
+}
+
+fn parse_supported_book(path: &Path) -> AppResult<crate::db::NewBook> {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("epub") => EpubParser::new().parse(path),
+        Some(ext) if ext.eq_ignore_ascii_case("pdf") => PdfParser::new().parse(path),
+        Some(ext) => Err(crate::AppError::InvalidInput(format!(
+            "Unsupported extension for watcher parsing: {}",
+            ext
+        ))),
+        None => Err(crate::AppError::InvalidInput(
+            "Book file has no extension".to_string(),
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -239,10 +253,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_epub_file() {
-        assert!(is_epub_file(Path::new("book.epub")));
-        assert!(is_epub_file(Path::new("Book.EPUB")));
-        assert!(!is_epub_file(Path::new("book.pdf")));
-        assert!(!is_epub_file(Path::new("book")));
+    fn test_is_supported_book_file() {
+        assert!(is_supported_book_file(Path::new("book.epub")));
+        assert!(is_supported_book_file(Path::new("Book.EPUB")));
+        assert!(is_supported_book_file(Path::new("book.pdf")));
+        assert!(is_supported_book_file(Path::new("Book.PDF")));
+        assert!(!is_supported_book_file(Path::new("book.mobi")));
+        assert!(!is_supported_book_file(Path::new("book")));
     }
 }

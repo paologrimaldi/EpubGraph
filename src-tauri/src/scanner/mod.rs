@@ -1,6 +1,6 @@
 //! Filesystem scanner module
 //!
-//! High-performance parallel scanning for EPUB files
+//! High-performance parallel scanning for ebook files
 
 use crate::db::NewBook;
 use crate::AppResult;
@@ -47,7 +47,7 @@ impl Default for ScannerConfig {
         Self {
             max_depth: 20,
             follow_links: false,
-            extensions: vec!["epub".to_string()],
+            extensions: vec!["epub".to_string(), "pdf".to_string()],
             cover_extensions: vec!["jpg".to_string(), "jpeg".to_string(), "png".to_string()],
         }
     }
@@ -71,7 +71,7 @@ impl Scanner {
         Self { config }
     }
 
-    /// Fast scan - only discover EPUB files without parsing metadata
+    /// Fast scan - only discover supported book files without parsing metadata
     /// Returns minimal book records that can be quickly inserted into DB
     pub fn fast_scan(&self, root: &Path) -> AppResult<Vec<NewBook>> {
         tracing::info!("Fast scanning directory: {:?}", root);
@@ -92,7 +92,7 @@ impl Scanner {
                 is_root || !is_hidden(e)
             })
             .filter_map(|e| e.ok())
-            .filter(|e| self.is_epub(e))
+            .filter(|e| self.is_supported_book(e))
         {
             let path = entry.path();
             let file_size = entry.metadata().map(|m| m.len() as i64).unwrap_or(0);
@@ -129,7 +129,7 @@ impl Scanner {
         }
 
         tracing::info!(
-            "Fast scan found {} EPUB files in {:?}",
+            "Fast scan found {} book files in {:?}",
             books.len(),
             start.elapsed()
         );
@@ -137,8 +137,8 @@ impl Scanner {
         Ok(books)
     }
 
-    /// Check if a directory entry is an EPUB file
-    fn is_epub(&self, entry: &DirEntry) -> bool {
+    /// Check if a directory entry is a supported book file
+    fn is_supported_book(&self, entry: &DirEntry) -> bool {
         if !entry.file_type().is_file() {
             return false;
         }
@@ -217,6 +217,19 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].path, epub_path.to_string_lossy());
+    }
+
+    #[test]
+    fn test_scanner_finds_pdf() {
+        let temp = TempDir::new().unwrap();
+        let pdf_path = temp.path().join("test.pdf");
+        fs::write(&pdf_path, b"%PDF-1.4\n").unwrap();
+
+        let scanner = Scanner::new();
+        let results = scanner.fast_scan(temp.path()).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, pdf_path.to_string_lossy());
     }
 
     #[test]

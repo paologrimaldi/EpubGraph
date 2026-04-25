@@ -633,7 +633,8 @@ impl Database {
             let mut stmt = conn.prepare(
                 "SELECT id, path FROM books
                  WHERE (description IS NULL OR description = '')
-                 AND (embedding_status IS NULL OR embedding_status = '')
+                 AND date_indexed IS NULL
+                 AND (embedding_status IS NULL OR embedding_status = '' OR embedding_status = 'pending')
                  ORDER BY date_added DESC
                  LIMIT ?"
             )?;
@@ -927,7 +928,8 @@ impl Database {
             let books_needing_metadata: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM books
                  WHERE (description IS NULL OR description = '')
-                 AND (embedding_status IS NULL OR embedding_status = '')",
+                 AND date_indexed IS NULL
+                 AND (embedding_status IS NULL OR embedding_status = '' OR embedding_status = 'pending')",
                 [],
                 |r| r.get(0)
             )?;
