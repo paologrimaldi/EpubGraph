@@ -45,8 +45,8 @@ fn get_book_folder(book_path: &std::path::Path) -> Option<std::path::PathBuf> {
         return None;
     }
 
-    // Check that all files in the folder are book-related (epub, cover, metadata, etc.)
-    let book_extensions = ["epub", "jpg", "jpeg", "png", "gif", "opf", "xml", "json", "txt"];
+    // Check that all files in the folder are book-related (book, cover, metadata, etc.)
+    let book_extensions = ["epub", "pdf", "jpg", "jpeg", "png", "gif", "opf", "xml", "json", "txt"];
     let all_book_related = entries.iter().all(|e| {
         let path = e.path();
         if path.is_dir() {

@@ -2,6 +2,7 @@
 
 use crate::db::Library;
 use crate::epub::EpubParser;
+use crate::pdf::PdfParser;
 use crate::scanner::{ScanProgress, ScanResult, Scanner};
 use crate::state::AppState;
 use std::path::Path;
@@ -91,13 +92,13 @@ pub async fn scan_library(
     // Emit start event
     let _ = app.emit("scan:start", &library.name);
 
-    // Phase 1: Fast scan - find all EPUB files (no parsing)
+    // Phase 1: Fast scan - find all supported book files (no parsing)
     let _ = app.emit("scan:progress", ScanProgress {
         phase: "scanning".to_string(),
         found: 0,
         processed: 0,
         total: 0,
-        current: Some("Discovering EPUB files...".to_string()),
+        current: Some("Discovering book files...".to_string()),
         eta_seconds: None,
     });
 
@@ -208,8 +209,8 @@ pub struct MetadataParsingResult {
     pub duration_ms: u64,
 }
 
-/// Parse metadata for books that are missing descriptions
-/// This extracts full EPUB metadata including descriptions for embedding generation
+/// Parse metadata for books that are pending metadata extraction
+/// This extracts metadata from supported formats for embedding generation
 #[tauri::command]
 pub async fn parse_metadata_batch(
     state: State<'_, Arc<AppState>>,
@@ -255,9 +256,18 @@ pub async fn parse_metadata_batch(
 
         // Parse with timeout using spawn_blocking to avoid blocking the async runtime
         let parse_result = timeout(parse_timeout, tokio::task::spawn_blocking(move || {
-            let parser = EpubParser::new();
             let path = Path::new(&path_str);
-            parser.parse(path)
+            match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) {
+                Some(ext) if ext == "epub" => EpubParser::new().parse(path),
+                Some(ext) if ext == "pdf" => PdfParser::new().parse(path),
+                Some(ext) => Err(crate::AppError::InvalidInput(format!(
+                    "Unsupported file extension for metadata parsing: {}",
+                    ext
+                ))),
+                None => Err(crate::AppError::InvalidInput(
+                    "Book file has no extension".to_string(),
+                )),
+            }
         })).await;
 
         match parse_result {
@@ -294,7 +304,7 @@ pub async fn parse_metadata_batch(
                 }
             }
             Ok(Ok(Err(_e))) => {
-                // EPUB parsing failed - mark as skipped so it won't be retried
+                // Metadata parsing failed - mark as skipped so it won't be retried
                 state.db.update_embedding_status(book_id, "skipped").map_err(|e| e.to_string())?;
                 failed += 1;
             }

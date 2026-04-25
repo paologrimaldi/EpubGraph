@@ -13,6 +13,7 @@ pub mod db;
 pub mod epub;
 pub mod graph;
 pub mod ollama;
+pub mod pdf;
 pub mod scanner;
 pub mod state;
 pub mod vector;
@@ -33,6 +34,9 @@ pub enum AppError {
     
     #[error("EPUB parsing error: {0}")]
     EpubParse(String),
+
+    #[error("PDF parsing error: {0}")]
+    PdfParse(String),
     
     #[error("Ollama error: {0}")]
     Ollama(String),
