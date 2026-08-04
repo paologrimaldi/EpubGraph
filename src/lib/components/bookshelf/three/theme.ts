@@ -4,12 +4,15 @@ import { mixHex } from './bookIdentity';
 const DARK_ANCHOR = '#14141e';   // app dark chrome family
 const LIGHT_ANCHOR = '#efe7d8';  // warm paper
 
+// The scene is a dark editorial room regardless of app chrome mode — light app
+// mode only pulls gently toward paper (backdrop) and stays dark-biased (floor),
+// it never washes out to a light void the way LIGHT_ANCHOR-dominant mixes did.
 export function blendPaletteWithMode(p: BookPalette, dark: boolean): ScenePalette {
-	const backdrop = dark ? mixHex(p.paper, DARK_ANCHOR, 0.6) : mixHex(p.paper, LIGHT_ANCHOR, 0.55);
+	const backdrop = dark ? mixHex(p.paper, DARK_ANCHOR, 0.6) : mixHex(p.paper, LIGHT_ANCHOR, 0.15);
 	return {
 		backdrop,
 		fog: backdrop,
-		floor: dark ? mixHex(p.floor, DARK_ANCHOR, 0.65) : mixHex(p.floor, LIGHT_ANCHOR, 0.35),
+		floor: dark ? mixHex(p.floor, DARK_ANCHOR, 0.65) : mixHex(p.floor, DARK_ANCHOR, 0.35),
 		key: p.light,
 		fill: p.fill,
 		accent: p.foil,

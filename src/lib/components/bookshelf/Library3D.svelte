@@ -7,16 +7,18 @@
 	import type { LightRig } from './three/lights';
 	import type { ScenePalette } from './types/experience';
 
-	// Warm neutral placeholder theme — real book-driven theming (blendPaletteWithMode
-	// + paletteFromSeed) arrives once the carousel task wires an actual selection;
-	// paletteFromSeed(0)'s dark-navy cloth blended to a cold gray-taupe backdrop, so
-	// for now the empty studio just uses this literal directly.
+	// Dark editorial-room placeholder theme — real book-driven theming
+	// (blendPaletteWithMode + paletteFromSeed) arrives once the carousel task
+	// wires an actual selection. The reference design is a dark intimate room
+	// (near-black backdrop, dark floor, warm light pooling), not a light
+	// warm-paper wash, so this approximates the reference's default stage
+	// minus books.
 	const PLACEHOLDER_PALETTE: ScenePalette = {
-		backdrop: '#e8ddc9',
-		fog: '#e8ddc9',
-		floor: '#dccdb0',
+		backdrop: '#232630',
+		fog: '#232630',
+		floor: '#2a2620',
 		key: '#f4d7b9',
-		fill: '#d8e3e7',
+		fill: '#9fb3c9',
 		accent: '#c87046',
 		shelf: '#3a2118'
 	};
