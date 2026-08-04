@@ -13,6 +13,12 @@ export interface Carousel {
 	update(dt: number, elapsed: number): boolean; // damps everything; true if still moving
 	snapAll(): void; // reduced-motion / post-transition sync
 	onSelectionChange(cb: (index: number) => void): void;
+	// Pulls a rig out of shelf-stage posing while inspect.ts owns its root/
+	// motion/opacity transform (opening/inspect/closing) — its cover-crack
+	// hover channel keeps running here (see update()) so hovering the
+	// inspected book still cracks it open, matching shelf-mode behavior.
+	// `null` re-includes whatever rig was detached in normal shelf posing.
+	setDetachedRig(rig: RigHandle | null): void;
 }
 
 // §4.2 recipe constants.
@@ -78,6 +84,7 @@ export function createCarousel(
 	let hoveredBookId: number | null = null;
 	let hoveredPointerNdc = { x: 0, y: 0 };
 	let selectionChangeCb: ((index: number) => void) | null = null;
+	let detachedRig: RigHandle | null = null;
 
 	function count(): number {
 		return runtimes.length;
@@ -228,6 +235,23 @@ export function createCarousel(
 		for (let i = 0; i < n; i++) {
 			const runtime = runtimes[i];
 			const rig = runtime.rig;
+
+			if (rig === detachedRig) {
+				// root/motion/opacity/contact-shadow are owned by inspect.ts for
+				// the duration of the detach — only the cover-crack hinge still
+				// lives here so hovering the inspected book still cracks it open.
+				const hovered = !reduced && hoveredBookId !== null && rig.identity.id === hoveredBookId;
+				if (reduced) {
+					runtime.frontRotY = 0;
+				} else {
+					const [v, s] = ease(runtime.frontRotY, hovered ? HOVER_CRACK : 0, dt, EPS_ANGLE);
+					runtime.frontRotY = v;
+					if (!s) unsettled = true;
+				}
+				rig.frontPivot.rotation.y = runtime.frontRotY;
+				continue;
+			}
+
 			const { offset, pose } = computePose(rig, i, position, n, wrap);
 
 			// Seam crossing: the wrapped offset jumped by roughly half the queue in
@@ -322,8 +346,15 @@ export function createCarousel(
 		wheelIdleRemaining = 0;
 		const n = count();
 		const wrap = shouldWrap(n);
-		for (let i = 0; i < n; i++) snapRuntime(runtimes[i], i, position, n, wrap);
+		for (let i = 0; i < n; i++) {
+			if (runtimes[i].rig === detachedRig) continue;
+			snapRuntime(runtimes[i], i, position, n, wrap);
+		}
 		recomputeSelectedIndex();
+	}
+
+	function setDetachedRig(rig: RigHandle | null): void {
+		detachedRig = rig;
 	}
 
 	return {
@@ -342,6 +373,7 @@ export function createCarousel(
 		snapAll,
 		onSelectionChange(cb: (index: number) => void) {
 			selectionChangeCb = cb;
-		}
+		},
+		setDetachedRig
 	};
 }

@@ -7,6 +7,7 @@
 	import type { Book } from '$lib/api/commands';
 
 	let mounted = false;
+	let selectedBookId: number | null = null;
 	onMount(() => {
 		mounted = true;
 	});
@@ -249,7 +250,24 @@
 </svelte:head>
 
 {#if mounted}
-	<div style="width:100vw;height:100vh">
-		<Library3D books={FAKE_BOOKS} textureQuality="medium" />
+	<div style="width:100vw;height:100vh;position:relative">
+		<Library3D books={FAKE_BOOKS} textureQuality="medium" bind:selectedBookId />
+
+		<!-- Minimal fake sidebar — verifies the inspect view-offset/composition
+		     (book beside a 22rem panel, canvas never resizing) without Tauri or
+		     the real BookDetail component. Wired the same way the real sidebar
+		     is: closing it nulls selectedBookId, which Library3D reactively
+		     observes and closes inspect for. -->
+		{#if selectedBookId !== null}
+			<aside
+				style="position:absolute;right:0;top:0;bottom:0;width:22rem;z-index:10;background:#161616;color:#eee;border-left:1px solid #333;padding:16px;box-sizing:border-box"
+			>
+				<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+					<strong>Book detail (fake)</strong>
+					<button type="button" on:click={() => (selectedBookId = null)} style="color:#eee">Close</button>
+				</div>
+				<p>Selected book id: {selectedBookId}</p>
+			</aside>
+		{/if}
 	</div>
 {/if}

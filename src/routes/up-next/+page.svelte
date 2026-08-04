@@ -9,19 +9,17 @@
 		loadUpNextBooks,
 		upNextTotalCount
 	} from '$lib/stores/upnext';
-	import type { Book } from '$lib/api/commands';
 	import { ListTodo, BookOpen } from 'lucide-svelte';
 
-	let selectedBook: Book | null = null;
 	let selectedBookId: number | null = null;
-
-	function handleBookSelected(event: CustomEvent<Book>) {
-		selectedBook = event.detail;
-		selectedBookId = event.detail.id;
-	}
+	// Derived (not separately tracked) so there's a single source of truth for
+	// "which book is inspected" — Library3D's inspect view reassigns
+	// selectedBookId directly (two-way bind), and a close initiated from
+	// *inside* the 3D view (Escape, empty-canvas click) nulls it the same way
+	// a close from this sidebar's own button does, so both paths converge here.
+	$: selectedBook = $upNextBooksWithWant.find((b) => b.id === selectedBookId) ?? null;
 
 	function handleCloseDetail() {
-		selectedBook = null;
 		selectedBookId = null;
 	}
 
@@ -85,21 +83,19 @@
 					</div>
 				</div>
 			{:else}
-				<Library3D
-					books={$upNextBooksWithWant}
-					bind:selectedBookId
-					on:bookSelected={handleBookSelected}
-				/>
+				<Library3D books={$upNextBooksWithWant} bind:selectedBookId />
+			{/if}
+
+			<!-- Book Detail Sidebar — an absolute overlay (not a flex sibling) so the
+			     canvas never resizes when it opens/closes; Library3D's inspect view
+			     shifts its own camera view-offset to keep the book clear of it. -->
+			{#if selectedBook}
+				<aside class="absolute right-0 top-0 bottom-0 w-[22rem] z-10 border-l border-[var(--gw-separator)] overflow-hidden">
+					<BookDetail book={selectedBook} context="upnext" on:close={handleCloseDetail} />
+				</aside>
 			{/if}
 		</div>
 	</div>
-
-	<!-- Book Detail Sidebar -->
-	{#if selectedBook}
-		<aside class="w-[22rem] flex-none border-l border-[var(--gw-separator)] overflow-hidden">
-			<BookDetail book={selectedBook} context="upnext" on:close={handleCloseDetail} />
-		</aside>
-	{/if}
 </div>
 
 <style>

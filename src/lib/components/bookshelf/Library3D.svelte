@@ -8,7 +8,9 @@
 	import type { LightRig } from './three/lights';
 	import type { RigHandle } from './three/bookRig';
 	import type { Carousel } from './three/carousel';
-	import type { ScenePalette } from './types/experience';
+	import type { InspectController } from './three/inspect';
+	import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+	import type { ScenePalette, Mode } from './types/experience';
 	// Pure/near-pure modules — no three.js/DOM touched at module scope — safe to
 	// import statically even though this component otherwise keeps every three.js-
 	// touching module behind a dynamic import (see initScene below). carousel.ts
@@ -37,11 +39,11 @@
 	// Props (Svelte 4 syntax).
 	export let books: Book[] = [];
 	export let textureQuality: 'low' | 'medium' | 'high' = 'medium';
-	// Reserved for Task 9 (inspect selection) — not read internally yet, but
-	// must stay a genuine `export let` (not `export const`) so `bind:` keeps
-	// working for callers once that task wires it up. svelte-check's "unused
-	// export property" warning for this one is expected until then (a `$: void`
-	// reference does not silence that specific check) — not gate-blocking.
+	// Which book is shown in the external BookDetail sidebar / inspect view.
+	// Two-way: openInspect()/closeInspect() reassign it directly (drives
+	// `bind:selectedBookId` on the caller); a caller nulling it externally
+	// (e.g. the sidebar's own close button) is reactively observed below and
+	// closes inspect if it's currently open.
 	export let selectedBookId: number | null = null;
 
 	const dispatch = createEventDispatcher<{
@@ -68,6 +70,13 @@
 	let raycaster: import('three').Raycaster | null = null;
 	let pointerVec: import('three').Vector2 | null = null;
 	const modeMachine = createModeMachine();
+	let controls: OrbitControls | null = null;
+	let inspect: InspectController | null = null;
+	// Mirrors modeMachine.mode for Svelte template reactivity — the machine's
+	// `.mode` getter has hidden closure state Svelte's compiler can't track,
+	// so template-facing reads go through this plain `let` instead, kept in
+	// sync via syncMode() after anything that can move the machine.
+	let mode: Mode = 'shelf';
 	let resizeObserver: ResizeObserver | null = null;
 	let darkModeObserver: MutationObserver | null = null;
 	let currentDarkMode = false;
@@ -109,8 +118,9 @@
 	}
 
 	// Single on-demand frame callback (Experience.onFrame is single-slot) —
-	// multiplexes dust settle, carousel motion, and theme easing through one
-	// handler and requests another frame while any one of them is still moving.
+	// multiplexes dust settle, carousel motion, theme easing, and inspect
+	// open/close/orbit through one handler and requests another frame while
+	// any one of them is still moving.
 	function handleFrame(dt: number, elapsed: number): boolean {
 		if (dustSettleStart === null) dustSettleStart = elapsed;
 		let dustSettling = false;
@@ -121,7 +131,15 @@
 		}
 		const carouselMoving = carousel?.update(dt, elapsed) ?? false;
 		const themeMoving = themeDriver?.update(dt) ?? false;
-		return dustSettling || carouselMoving || themeMoving;
+		const inspectMoving = inspect?.update(dt) ?? false;
+		syncMode();
+		return dustSettling || carouselMoving || themeMoving || inspectMoving;
+	}
+
+	// Keeps the template-facing `mode` mirror in sync with modeMachine.mode —
+	// cheap no-op check on frames where nothing transitioned.
+	function syncMode(): void {
+		if (mode !== modeMachine.mode) mode = modeMachine.mode;
 	}
 
 	function announceSelection(index: number): void {
@@ -149,11 +167,13 @@
 		// here (rather than statically imported) purely to construct the
 		// Raycaster/Vector2 used by pointer hit-testing below — carousel.ts and
 		// theme.ts need no runtime three.js import of their own.
-		const [three, experienceModule, roomModule, lightsModule] = await Promise.all([
+		const [three, experienceModule, roomModule, lightsModule, orbitModule, inspectModule] = await Promise.all([
 			import('three'),
 			import('./three/experience'),
 			import('./three/room'),
-			import('./three/lights')
+			import('./three/lights'),
+			import('three/examples/jsm/controls/OrbitControls.js'),
+			import('./three/inspect')
 		]);
 
 		// The component may have been torn down while the imports above were
@@ -178,6 +198,21 @@
 			reducedMotion: experience.reducedMotion
 		});
 		carousel.onSelectionChange(handleSelectionChange);
+
+		// Bare OrbitControls instance — createInspect() owns all of its tuning
+		// (distance/polar clamps, damping) and its enabled/target lifecycle.
+		controls = new orbitModule.OrbitControls(experience.camera, experience.renderer.domElement);
+		inspect = inspectModule.createInspect({
+			experience,
+			carousel,
+			machine: modeMachine,
+			controls,
+			sidebarWidthPx: () => inspectModule.SIDEBAR_WIDTH_PX,
+			reducedMotion: experience.reducedMotion,
+			announce: (msg: string) => {
+				liveMessage = msg;
+			}
+		});
 
 		experience.onFrame(handleFrame);
 		experience.requestFrame();
@@ -238,9 +273,9 @@
 		experience.requestFrame();
 	}
 
-	// ---- carousel inputs — all guarded on mode: inspect (Task 9) will move the
-	// machine out of 'shelf', and the shelf must stop responding to navigation
-	// while it's retreated/occluded behind the inspect view. ----
+	// ---- carousel inputs — all guarded on mode: opening/inspect/closing move
+	// the machine out of 'shelf', and the shelf must stop responding to
+	// navigation while it's retreated/occluded behind the inspect view. ----
 
 	function navigate(delta: number): void {
 		if (!carousel || modeMachine.mode !== 'shelf') return;
@@ -272,6 +307,11 @@
 		if (!experience || !raycaster || !pointerVec || rigs.length === 0) return null;
 		const ndc = pointerToNdc(event);
 		pointerVec.set(ndc.x, ndc.y);
+		// Inspect moves the camera every frame it's active (shelf browsing never
+		// does) — force a fresh matrixWorld so a raycast firing between two
+		// rendered frames (e.g. mid-transition or mid-orbit-drag) doesn't use a
+		// stale camera transform.
+		experience.camera.updateMatrixWorld();
 		raycaster.setFromCamera(pointerVec, experience.camera);
 		const hitMeshes = rigs.map((rig) => rig.hit).filter((mesh) => mesh.visible);
 		const intersections = raycaster.intersectObjects(hitMeshes, false);
@@ -305,11 +345,18 @@
 	}
 
 	function handleClick(event: MouseEvent): void {
-		if (!carousel || modeMachine.mode !== 'shelf') return;
+		if (!carousel) return;
+		if (modeMachine.mode === 'inspect') {
+			// Click on the book itself: no-op (still inspecting). Click on empty
+			// canvas: close.
+			if (!raycastBook(event)) closeInspect();
+			return;
+		}
+		if (modeMachine.mode !== 'shelf') return; // opening/closing: inert
 		const hit = raycastBook(event);
 		if (!hit) return;
 		if (hit.index === carousel.selectedIndex) {
-			// Task 9 opens the inspect view from here — no-op until then.
+			openInspect();
 			return;
 		}
 		navigateTo(hit.index);
@@ -323,7 +370,13 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent): void {
-		if (!carousel || modeMachine.mode !== 'shelf') return;
+		if (!carousel) return;
+		if (modeMachine.mode === 'inspect' && event.key === 'Escape') {
+			event.preventDefault();
+			closeInspect();
+			return;
+		}
+		if (modeMachine.mode !== 'shelf') return;
 		switch (event.key) {
 			case 'ArrowLeft':
 				event.preventDefault();
@@ -343,12 +396,51 @@
 				break;
 			case 'Enter':
 			case ' ':
-				// Reserved for inspect (Task 9) — no-op for now.
 				event.preventDefault();
+				openInspect();
 				break;
 			default:
 				break;
 		}
+	}
+
+	// ---- inspect open/close (Task 9) ----
+
+	function openInspect(): void {
+		if (!carousel || !inspect || modeMachine.mode !== 'shelf') return;
+		const rig = rigs[carousel.selectedIndex];
+		const book = books[carousel.selectedIndex];
+		if (!rig || !book) return;
+		const origin = (browser ? (document.activeElement as HTMLElement | null) : null) ?? container;
+		inspect.open(rig, origin);
+		syncMode();
+		selectedBookId = book.id;
+		dispatch('bookSelected', book);
+		dispatch('selectedBookIdChange', book.id);
+		experience?.requestFrame();
+		// The browse HUD (and whatever control was just focused, e.g. this
+		// button) goes `inert` once Svelte flushes the mode change, which
+		// browser-natively blurs it back to <body> — deferred past that so
+		// Escape (handled by this container's own on:keydown) and Tab-to-
+		// "Reset view" work without depending on where focus happened to be
+		// when open() was invoked.
+		if (browser) setTimeout(() => container?.focus(), 0);
+	}
+
+	function closeInspect(): void {
+		if (!inspect || modeMachine.mode !== 'inspect') return;
+		inspect.close();
+		syncMode();
+		if (selectedBookId !== null) selectedBookId = null;
+		dispatch('selectedBookIdChange', null);
+		experience?.requestFrame();
+	}
+
+	// External close (e.g. the BookDetail sidebar's own close button, wired
+	// via bind:selectedBookId) — only acts while genuinely inspecting so a
+	// parent that simply hasn't set selectedBookId yet doesn't do anything.
+	$: if (browser && modeMachine.mode === 'inspect' && selectedBookId === null) {
+		closeInspect();
 	}
 
 	interface Disposable {
@@ -411,11 +503,14 @@
 				disposeSceneResources(experience);
 				experience.dispose();
 			}
+			controls?.dispose();
 			experience = null;
 			room = null;
 			lights = null;
 			carousel = null;
 			themeDriver = null;
+			inspect = null;
+			controls = null;
 			raycaster = null;
 			pointerVec = null;
 		};
@@ -438,7 +533,7 @@
 	></div>
 
 	{#if identities.length > 0}
-		<div class="hud-overlay">
+		<div class="hud-overlay" class:hud-faded={mode !== 'shelf'} inert={mode !== 'shelf'}>
 			<div class="hud-panel">
 				<div class="text-center max-w-full">
 					<h2
@@ -471,7 +566,13 @@
 					>
 						<ChevronLeft class="w-4 h-4" />
 					</button>
-					<button type="button" class="hud-inspect-btn" disabled aria-label="Inspect selected book">
+					<button
+						type="button"
+						class="hud-inspect-btn"
+						disabled={mode !== 'shelf'}
+						aria-label="Inspect selected book"
+						on:click={openInspect}
+					>
 						Inspect
 					</button>
 					<button
@@ -499,6 +600,14 @@
 					{/each}
 				</div>
 			</div>
+		</div>
+	{/if}
+
+	{#if mode === 'inspect'}
+		<div class="inspect-hud">
+			<button type="button" class="inspect-reset-btn" on:click={() => inspect?.resetView()}>
+				Reset view
+			</button>
 		</div>
 	{/if}
 
@@ -537,6 +646,50 @@
 		justify-content: center;
 		padding-bottom: 28px;
 		pointer-events: none;
+		opacity: 1;
+		transition: opacity 0.3s ease;
+	}
+
+	/* Browse HUD fades (and is made `inert`) during opening/inspect/closing —
+	   the shelf it controls is retreated/occluded in those modes. */
+	.hud-overlay.hud-faded {
+		opacity: 0;
+	}
+
+	.inspect-hud {
+		position: absolute;
+		left: 24px;
+		bottom: 28px;
+		pointer-events: none;
+	}
+
+	.inspect-reset-btn {
+		pointer-events: auto;
+		padding: 0.4rem 1rem;
+		font-size: 12.5px;
+		font-weight: 500;
+		letter-spacing: -0.005em;
+		border-radius: 999px;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		-webkit-backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		color: var(--gw-fg);
+		border: 0.5px solid var(--gw-border);
+		box-shadow: var(--gw-shadow-lg);
+		transition: background 0.15s ease, transform 0.1s ease;
+	}
+
+	.inspect-reset-btn:hover {
+		background: var(--gw-surface-elevated);
+	}
+
+	.inspect-reset-btn:active {
+		transform: scale(0.96);
+	}
+
+	.inspect-reset-btn:focus-visible {
+		outline: 2px solid var(--gw-accent);
+		outline-offset: 2px;
 	}
 
 	.hud-panel {
@@ -600,9 +753,28 @@
 		letter-spacing: -0.005em;
 		border-radius: 999px;
 		background: var(--gw-surface-tint);
-		color: var(--gw-fg-muted);
+		color: var(--gw-fg);
 		border: 1px solid var(--gw-border);
+		cursor: pointer;
+		transition: background 0.15s ease, transform 0.1s ease;
+	}
+
+	.hud-inspect-btn:hover:not(:disabled) {
+		background: var(--gw-surface-elevated);
+	}
+
+	.hud-inspect-btn:active:not(:disabled) {
+		transform: scale(0.96);
+	}
+
+	.hud-inspect-btn:disabled {
+		color: var(--gw-fg-muted);
 		cursor: not-allowed;
+	}
+
+	.hud-inspect-btn:focus-visible {
+		outline: 2px solid var(--gw-accent);
+		outline-offset: 2px;
 	}
 
 	.hud-markers {
