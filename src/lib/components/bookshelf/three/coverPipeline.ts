@@ -99,6 +99,20 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 
 	const cache = new Map<number, CacheEntry>();
 	const statusById = new Map<number, Status>();
+	// Per-id generation counter (Task 10 review Finding 1). hydrate() bumps an
+	// id's entry here whenever that id falls out of the current rig list.
+	// Deliberately never deleted/reset — only ever incremented — so the
+	// comparison in processBook() below stays valid across however many
+	// remove/re-add cycles happen while an old fetch is still in flight.
+	// Unbounded but negligible (one integer per book id ever seen in this
+	// pipeline instance's lifetime).
+	const epochById = new Map<number, number>();
+	// Tracks, per RigHandle *instance*, the exact texture object last applied
+	// to it (Finding 2) — lets reapplyCached tell "already carries this
+	// texture, no-op" apart from "genuinely needs it applied" without needing
+	// any new accessor on RigHandle itself. A WeakMap so a disposed/replaced
+	// rig's entry is simply dropped with it, no manual cleanup required.
+	const appliedTextureByRig = new WeakMap<RigHandle, THREE.CanvasTexture>();
 	let pendingQueue: number[] = [];
 	let idleHandle: number | null = null;
 
@@ -108,7 +122,14 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 
 	/** Re-applies an already-cached texture/palette to a rig — used both for a fresh cache hit and for a rig rebuilt/re-added after its cover was already hydrated. */
 	function reapplyCached(rig: RigHandle, entry: CacheEntry): void {
-		if (entry.texture) rig.applyRealCover(entry.texture);
+		// Finding 2: hydrate() re-runs on every selection change, so without
+		// this guard every already-hydrated rig on the shelf would re-run
+		// applyRealCover (→ material.needsUpdate churn) on every single
+		// navigation, not just the rig that actually changed.
+		if (entry.texture && appliedTextureByRig.get(rig) !== entry.texture) {
+			rig.applyRealCover(entry.texture);
+			appliedTextureByRig.set(rig, entry.texture);
+		}
 		// Reference check, not a dirty flag: a survivor rig already carries the
 		// exact cached palette object from a prior pass (no-op here); a fresh
 		// rig instance (new identity object, seed-based default palette) does
@@ -120,6 +141,18 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 	}
 
 	async function processBook(id: number): Promise<void> {
+		// Generation stamp for this fetch attempt (Finding 1), captured
+		// synchronously here — before any await — so it reflects whatever
+		// epoch was current the instant this attempt was kicked off. If this
+		// id is removed and re-added (a brand-new RigHandle for the same id)
+		// before this attempt resolves, hydrate() bumps epochById for it and
+		// a second, independent processBook(id) call starts carrying the
+		// bumped value while this one still carries the old one — isStale()
+		// lets the loser recognize itself right before it would otherwise
+		// overwrite cache/rig state that the winner already claimed.
+		const epoch = epochById.get(id) ?? 0;
+		const isStale = (): boolean => (epochById.get(id) ?? 0) !== epoch;
+
 		try {
 			let dataUrl: string | null;
 			try {
@@ -128,13 +161,13 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 				// The expected path in a plain-browser dev harness (no Tauri IPC) —
 				// §7: never throw, keep the procedural identity, log at debug only.
 				console.debug(`coverPipeline: getCoverImage(${id}) rejected — keeping procedural cover`, err);
-				statusById.set(id, 'settled');
+				if (!isStale()) statusById.set(id, 'settled');
 				return;
 			}
 			if (disposed) return;
 			if (!dataUrl) {
 				console.debug(`coverPipeline: no cover for book ${id} — keeping procedural cover`);
-				statusById.set(id, 'settled');
+				if (!isStale()) statusById.set(id, 'settled');
 				return;
 			}
 
@@ -143,7 +176,7 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 				image = await decodeImage(dataUrl);
 			} catch (err) {
 				console.debug(`coverPipeline: cover decode failed for book ${id} — keeping procedural cover`, err);
-				statusById.set(id, 'settled');
+				if (!isStale()) statusById.set(id, 'settled');
 				return;
 			}
 			if (disposed) return;
@@ -159,10 +192,23 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 
 			const texture = makeRealCoverTexture(rig.identity, image, quality);
 			const palette = extractPalette(image);
+
+			if (isStale()) {
+				// A second processBook(id) attempt — started after this id was
+				// removed and re-added while this one was still in flight —
+				// has already claimed (or will claim) this id's cache entry.
+				// This continuation lost the race: its texture was never
+				// handed to cache.set/applyRealCover, so nothing else will
+				// ever free it — dispose it here instead of leaking it.
+				texture.dispose();
+				return;
+			}
+
 			cache.set(id, { image, texture, palette });
 			statusById.set(id, 'settled');
 
 			rig.applyRealCover(texture);
+			appliedTextureByRig.set(rig, texture);
 			if (palette) {
 				rig.identity.palette = palette;
 				firePalette(id, palette);
@@ -172,7 +218,7 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 			// own failure, but a synchronous throw from canvas/texture work must
 			// still never escape this async function as an unhandled rejection.
 			console.debug(`coverPipeline: unexpected failure hydrating book ${id} — keeping procedural cover`, err);
-			statusById.set(id, 'settled');
+			if (!isStale()) statusById.set(id, 'settled');
 		}
 	}
 
@@ -219,6 +265,7 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 		if (disposed) return;
 		currentRigs = rigs;
 		getSelectedIndex = selectedIndexFn;
+		const previousRigById = rigById;
 		rigById = new Map(rigs.map((rig) => [rig.identity.id, rig]));
 		const currentIds = rigById; // Map already gives us has()/keys() for the diff below
 
@@ -232,6 +279,14 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 		}
 		for (const id of statusById.keys()) {
 			if (!currentIds.has(id)) statusById.delete(id);
+		}
+		// Finding 1: bump the generation for every id that just fell out of
+		// the rig list, sourced from the *previous* rigById (not epochById's
+		// own keys, which would miss an id's very first removal) — this is
+		// what lets processBook() tell a stale, pre-removal continuation
+		// apart from a fresh one kicked off after a later re-add.
+		for (const id of previousRigById.keys()) {
+			if (!currentIds.has(id)) epochById.set(id, (epochById.get(id) ?? 0) + 1);
 		}
 		pendingQueue = pendingQueue.filter((id) => currentIds.has(id));
 
@@ -279,6 +334,7 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 		}
 		pendingQueue = [];
 		statusById.clear();
+		epochById.clear();
 		rigById = new Map();
 		currentRigs = [];
 		for (const entry of cache.values()) entry.texture?.dispose();
