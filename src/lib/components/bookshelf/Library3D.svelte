@@ -35,6 +35,12 @@
 	let darkModeObserver: MutationObserver | null = null;
 	let currentDarkMode = false;
 	let dustSettleStart: number | null = null;
+	// Guards the dynamic-import window in initScene(): the component can be
+	// destroyed (e.g. a store flip swapping this component out) before the
+	// five imports resolve — without this flag, initScene() would still go on
+	// to build a renderer/canvas/matchMedia listener/rAF loop with no
+	// disposal handle, orphaning a WebGL context.
+	let destroyed = false;
 
 	let blendPaletteWithMode: ThemeModule['blendPaletteWithMode'] | null = null;
 	let paletteFromSeed: IdentityModule['paletteFromSeed'] | null = null;
@@ -84,6 +90,11 @@
 			import('./three/theme'),
 			import('./three/bookIdentity')
 		]);
+
+		// The component may have been torn down while the imports above were
+		// in flight — bail before creating anything so no renderer/canvas/
+		// listener/rAF loop is ever orphaned without a disposal handle.
+		if (destroyed) return;
 
 		blendPaletteWithMode = themeModule.blendPaletteWithMode;
 		paletteFromSeed = identityModule.paletteFromSeed;
@@ -138,7 +149,9 @@
 	}
 
 	onMount(() => {
-		initScene();
+		initScene().catch((error) => {
+			console.error('Library3D: failed to initialize the 3D experience', error);
+		});
 
 		// Use ResizeObserver to detect container size changes (e.g., when sidebar opens/closes)
 		resizeObserver = new ResizeObserver(() => {
@@ -160,6 +173,7 @@
 		darkModeObserver.observe(document.documentElement, { attributes: true });
 
 		return () => {
+			destroyed = true;
 			resizeObserver?.disconnect();
 			darkModeObserver?.disconnect();
 

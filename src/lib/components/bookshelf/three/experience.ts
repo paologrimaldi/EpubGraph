@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export type FrameCallback = (dt: number, elapsed: number) => boolean;
+export type ReducedMotionCallback = (reduced: boolean) => void;
 
 export interface Experience {
 	scene: THREE.Scene;
@@ -16,6 +17,8 @@ export interface Experience {
 	dispose(): void;
 	/** prefers-reduced-motion, read at init and kept live for later tasks. */
 	reducedMotion(): boolean;
+	/** Single-slot subscription (mirrors onFrame) fired whenever the OS setting flips. */
+	onReducedMotionChange(cb: ReducedMotionCallback | null): void;
 }
 
 export const SHELF_CAMERA_POSITION: [number, number, number] = [0, 1.72, 4.6];
@@ -56,14 +59,7 @@ export function createExperience(container: HTMLElement): Experience {
 	shelfStage.name = 'shelfStage';
 	scene.add(shelfStage);
 
-	// prefers-reduced-motion — read now, kept live for later tasks (carousel/inspect).
-	const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-	let reducedMotionValue = motionQuery.matches;
-	const handleMotionChange = (event: MediaQueryListEvent) => {
-		reducedMotionValue = event.matches;
-	};
-	motionQuery.addEventListener('change', handleMotionChange);
-
+	let disposed = false;
 	let currentOffsetX = 0;
 
 	function applySize(): void {
@@ -83,6 +79,7 @@ export function createExperience(container: HTMLElement): Experience {
 	let cb: FrameCallback | null = null;
 
 	function requestFrame(): void {
+		if (disposed) return;
 		if (!rafId) rafId = requestAnimationFrame(frame);
 	}
 
@@ -100,6 +97,7 @@ export function createExperience(container: HTMLElement): Experience {
 	}
 
 	function setViewOffsetX(px: number): void {
+		if (disposed) return;
 		currentOffsetX = px;
 		if (px === 0) {
 			camera.clearViewOffset();
@@ -111,11 +109,39 @@ export function createExperience(container: HTMLElement): Experience {
 	}
 
 	function resize(): void {
+		if (disposed) return;
 		applySize();
 		if (currentOffsetX !== 0) setViewOffsetX(currentOffsetX);
 	}
 
+	// prefers-reduced-motion — read now, kept live for later tasks (carousel/inspect).
+	const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+	let reducedMotionValue = motionQuery.matches;
+	let reducedMotionListener: ReducedMotionCallback | null = null;
+	const handleMotionChange = (event: MediaQueryListEvent): void => {
+		reducedMotionValue = event.matches;
+		reducedMotionListener?.(reducedMotionValue);
+		// A callback branching on reducedMotion() inside onFrame needs a frame to
+		// actually observe the flip — an idle on-demand loop wouldn't otherwise repaint.
+		requestFrame();
+	};
+	motionQuery.addEventListener('change', handleMotionChange);
+
+	function reducedMotion(): boolean {
+		return reducedMotionValue;
+	}
+
+	function onReducedMotionChange(next: ReducedMotionCallback | null): void {
+		reducedMotionListener = next;
+	}
+
 	function dispose(): void {
+		if (disposed) return;
+		disposed = true;
+		if (rafId) cancelAnimationFrame(rafId);
+		rafId = 0;
+		cb = null;
+		reducedMotionListener = null;
 		motionQuery.removeEventListener('change', handleMotionChange);
 		environmentTarget.dispose();
 		pmremGenerator.dispose();
@@ -123,10 +149,6 @@ export function createExperience(container: HTMLElement): Experience {
 		if (renderer.domElement.parentElement === container) {
 			container.removeChild(renderer.domElement);
 		}
-	}
-
-	function reducedMotion(): boolean {
-		return reducedMotionValue;
 	}
 
 	return {
@@ -139,6 +161,7 @@ export function createExperience(container: HTMLElement): Experience {
 		setViewOffsetX,
 		resize,
 		dispose,
-		reducedMotion
+		reducedMotion,
+		onReducedMotionChange
 	};
 }
