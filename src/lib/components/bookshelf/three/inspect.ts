@@ -47,6 +47,14 @@ export interface InspectController {
 	handleCoverPointerDown(event: PointerEvent): boolean; // true if claimed (started a cover drag)
 	handleCoverPointerMove(event: PointerEvent): void;
 	handleCoverPointerUp(event: PointerEvent): void;
+	// Code-review fix (Task 12 findings, Important 1): the browser can abort
+	// an in-flight cover drag out from under us (touch takeover, palm
+	// rejection, OS-level gesture cancel) — pointerup, the only other place
+	// that clears coverDrag/coverPointerId, never fires for a cancelled
+	// pointer, so without this OrbitControls would stay disabled for the
+	// rest of the inspect session. Library3D.svelte routes both the
+	// `pointercancel` and `lostpointercapture` DOM events here.
+	handleCoverPointerCancel(event: PointerEvent): void;
 }
 
 // Inspect pose constants — the design brief's original numbers ([0,1.5,3.1]
@@ -816,6 +824,13 @@ export function createInspect(deps: {
 		coverAngleCurrent = 0;
 		hoverCrackAngle = 0;
 		hoverCrackTarget = 0;
+		// Code-review fix (Task 12 findings, Important 2): belt-and-suspenders
+		// direct assignment (not setReadingOpen — this is unconditional
+		// bookkeeping, not a user-facing toggle, and shouldn't announce) so
+		// `readingOpen` can never survive onto the shelf even if some future
+		// caller manages to flip it back on between close()'s own
+		// `setReadingOpen(false)` and this point.
+		readingOpen = false;
 
 		controls.enabled = false;
 
@@ -920,9 +935,25 @@ export function createInspect(deps: {
 	 * isn't actually changing, so callers (e.g. close()'s defensive
 	 * `setReadingOpen(false)`) can call it unconditionally without risking a
 	 * duplicate "Closed …" announcement.
+	 *
+	 * Code-review fix (Task 12 findings, Important 2): also no-ops unless
+	 * `phase === 'idle' && machine.mode === 'inspect'` — otherwise a click on
+	 * the HUD "Open book" button (or any other caller) landing during the
+	 * `'settling-cover'` close window re-opens the cover, which then
+	 * hard-snaps shut when beginClosingTransition()'s belt-and-suspenders
+	 * reset fires — a visible glitch plus a `readingOpen=true` that would
+	 * otherwise survive back onto the shelf. close()'s own
+	 * `setReadingOpen(false)` call still runs fine under this guard: it fires
+	 * before `phase` moves off `'idle'` and before `machine.to('closing')`,
+	 * see close() below. Every gesture path (click/drag-commit/HUD toggle)
+	 * already independently requires `phase === 'idle'` to even begin (cover
+	 * drags via raycastCoverHit's own gate, the HUD button only rendering
+	 * while `mode === 'inspect'`) — this is the belt to those gestures'
+	 * suspenders, catching a click that lands in the same frame the settle
+	 * window opens.
 	 */
 	function setReadingOpen(open: boolean): void {
-		if (!activeRig || readingOpen === open) return;
+		if (!activeRig || phase !== 'idle' || machine.mode !== 'inspect' || readingOpen === open) return;
 		readingOpen = open;
 		announce(open ? `Opened ${activeRig.identity.title}` : `Closed ${activeRig.identity.title}`);
 		experience.requestFrame();
@@ -1011,6 +1042,37 @@ export function createInspect(deps: {
 		experience.requestFrame();
 	}
 
+	/**
+	 * Code-review fix (Task 12 findings, Important 1): `pointercancel` (OS
+	 * gesture cancel, palm rejection, touch takeover by a browser gesture)
+	 * and `lostpointercapture` (capture lost/revoked out from under us) both
+	 * land here via Library3D.svelte's wiring. Unlike handleCoverPointerUp,
+	 * this never commits or toggles — an aborted drag isn't a release, it's
+	 * "the gesture never happened": clear the drag state and re-enable
+	 * OrbitControls exactly like a sub-threshold pointerup, but skip
+	 * setReadingOpen entirely so updateCoverPivot's next frame damps
+	 * coverAngleCurrent back toward whatever `readingOpen` already was
+	 * (coverDrag.active flipping false is what switches it from tracking the
+	 * live drag 1:1 back onto the damped settle path) — the same
+	 * spring-back the brief's sub-threshold-release case gets, without a
+	 * toggle. A no-op if this pointerId isn't the one a drag claimed (e.g.
+	 * cancel arrives after close() already cleared coverDrag/coverPointerId
+	 * itself, or for an unrelated pointer).
+	 */
+	function handleCoverPointerCancel(event: PointerEvent): void {
+		if (coverPointerId === null || event.pointerId !== coverPointerId) return;
+		try {
+			experience.renderer.domElement.releasePointerCapture(event.pointerId);
+		} catch {
+			// See handleCoverPointerDown's matching try/catch.
+		}
+		coverPointerId = null;
+		coverDragKindAtStart = null;
+		coverDrag = { active: false, kind: null, progress: 0 };
+		controls.enabled = machine.mode === 'inspect';
+		experience.requestFrame();
+	}
+
 	function resetView(): void {
 		if (machine.mode !== 'inspect') return;
 		clearOrbitMomentum();
@@ -1034,6 +1096,7 @@ export function createInspect(deps: {
 		setReadingOpen,
 		handleCoverPointerDown,
 		handleCoverPointerMove,
-		handleCoverPointerUp
+		handleCoverPointerUp,
+		handleCoverPointerCancel
 	};
 }

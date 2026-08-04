@@ -524,6 +524,21 @@
 		experience?.requestFrame();
 	}
 
+	// Code-review fix (Task 12 findings, Important 1): `pointercancel` (OS
+	// gesture cancel, palm rejection, touch takeover) and `lostpointercapture`
+	// (capture lost/revoked mid-drag) both need the same recovery as a
+	// released cover drag — without routing these, an interrupted drag left
+	// InspectController's coverDrag/coverPointerId permanently set, which
+	// left OrbitControls permanently disabled for the rest of the inspect
+	// session (nothing else ever clears that state). Forwarded the same way
+	// handlePointerUp forwards to handleCoverPointerUp; a no-op inside
+	// InspectController unless this pointerId is the one a drag claimed.
+	function handlePointerCancel(event: PointerEvent): void {
+		if (modeMachine.mode !== 'inspect') return;
+		inspect?.handleCoverPointerCancel(event);
+		experience?.requestFrame();
+	}
+
 	function clickTraveledPastThreshold(event: MouseEvent): boolean {
 		if (!pointerDownClient) return false;
 		const dx = event.clientX - pointerDownClient.x;
@@ -859,6 +874,8 @@
 			on:pointerdown={handlePointerDown}
 			on:pointermove={handlePointerMove}
 			on:pointerup={handlePointerUp}
+			on:pointercancel={handlePointerCancel}
+			on:lostpointercapture={handlePointerCancel}
 			on:pointerleave={handlePointerLeave}
 			on:click={handleClick}
 			on:keydown={handleKeydown}
