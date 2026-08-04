@@ -15,8 +15,16 @@ export interface RigHandle {
 	root: THREE.Group; // carousel slot pose target
 	motion: THREE.Group; // idle/hover offsets live here
 	frontPivot: THREE.Group; // cover crack/open hinge (rotation.y ∈ [-π+0.2, 0])
-	pagePivots: THREE.Group[]; // 6 leaves, hinge groups (Phase 2 animates)
-	pageSurfaces: THREE.Mesh[]; // raycast targets for page drag (Phase 2)
+	// 6 leaves, hinge groups. Each carries userData.restZ/turnedZ (closed vs.
+	// turned local z, Task 13's leafTargets targets) and userData.basePositions
+	// (Float32Array, the leaf's pristine flat-plane position attribute —
+	// Task 13's deformSheet input; see the per-leaf geometry clone below).
+	pagePivots: THREE.Group[];
+	// 12 meshes, 2 (front/back) per leaf pivot in index order (leaf i → index
+	// 2i front, 2i+1 back) — raycast targets for page drag (Task 14) and
+	// deformSheet's write target (Task 13; front/back share one geometry per
+	// leaf, so deforming either's attribute updates both).
+	pageSurfaces: THREE.Mesh[];
 	hit: THREE.Mesh; // oversized invisible click target, userData.bookId
 	contactShadow: THREE.Mesh;
 	fadeMaterials: THREE.Material[]; // opacity-driven set
@@ -271,7 +279,6 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 
 	const pagePivots: THREE.Group[] = [];
 	const pageSurfaces: THREE.Mesh[] = [];
-	const leafGeometry = track(new THREE.PlaneGeometry(1, 1, 22, 6));
 	const leafWidth = pageWidth - SPINE_WIDTH * 0.42;
 	const leafHeight = pageHeight - 0.014;
 
@@ -283,6 +290,20 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 		pivot.userData.turnedZ = d / 2 + BOARD + 0.004 + i * 0.0015;
 		motion.add(pivot);
 		pagePivots.push(pivot);
+
+		// Task 13 (§4.5): one geometry per leaf, not shared across all 6 —
+		// front/back sheets of the SAME leaf still share it (they're two
+		// faces of one physical sheet, so a curl/twist deform should read
+		// identically from both sides), but each leaf needs its own
+		// unshared position attribute so leaf i's curve/twist can differ
+		// from leaf j's without every leaf's sheets fighting over one GPU
+		// buffer. Base (pre-deform) positions are captured right here, while
+		// the geometry is still guaranteed flat, and stashed on the pivot
+		// alongside restZ/turnedZ — pageFlex.ts's deformSheet is pure and
+		// takes this Float32Array as an explicit parameter rather than
+		// reading it back off a (possibly already-deformed) live attribute.
+		const leafGeometry = track(new THREE.PlaneGeometry(1, 1, 22, 6));
+		pivot.userData.basePositions = (leafGeometry.getAttribute('position') as THREE.BufferAttribute).array.slice();
 
 		// Sheets hinge from x=0 (the pivot, at the spine) outward — offset by half their
 		// own width so they extend forward instead of straddling the hinge line.

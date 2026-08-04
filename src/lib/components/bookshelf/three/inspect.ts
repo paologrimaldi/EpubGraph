@@ -8,7 +8,16 @@ import type { RigHandle } from './bookRig';
 import type { ModeMachine } from './state';
 import { smootherstep, shelfPose, damp } from './carouselMath';
 import { capturePose, lerpPose, inspectScale, type PoseTargets } from './inspectMath';
-import { coverOpenAmount, coverAngle, HOVER_CRACK, type CoverDrag } from './pageFlex';
+import {
+	coverOpenAmount,
+	coverAngle,
+	HOVER_CRACK,
+	stepFlex,
+	deformSheet,
+	leafTargets,
+	type CoverDrag,
+	type FlexState
+} from './pageFlex';
 
 export interface InspectController {
 	open(rig: RigHandle, origin: HTMLElement | null): void; // shelf→opening
@@ -85,11 +94,41 @@ const COVER_SETTLE_MAX_SECONDS = 0.35;
 // pointer handlers are otherwise fully self-contained, see the interface
 // doc above).
 const COVER_CLICK_THRESHOLD_PX = 6;
-// Placeholder per-leaf fan stagger (Task 12 brief) until Task 13 replaces it
-// with real leaf spring physics — leaf i eases toward LEAF_FAN_STEP*(i+1)*openAmount.
-const LEAF_FAN_STEP = -0.06;
+// Task 13 (§4.5): per-leaf rest/turned damping + flex-spring tuning —
+// replaces the Task 12 placeholder fan (previously
+// LEAF_FAN_STEP*(i+1)*openAmount) with leafTargets/stepFlex/deformSheet.
+const LEAF_LAMBDA = 13; // brief-specified — shared by rotation.y and position.z damping
+const LEAF_ANGLE_EPS = 0.0006; // same order as COVER_OPEN_EPS
+// Leaf z targets are book-scale meters (~1e-3 range, see bookRig.ts's
+// restZ/turnedZ) — needs a proportionally tighter epsilon than the radian
+// angle/hover-crack epsilons above or a real gap would read as "converged".
+const LEAF_Z_EPS = 0.00002;
+// Brief-specified perf guard: once a leaf's |curve|+|twist| and both
+// velocities drop below this, treat it as flat and stop touching its
+// geometry — the tiny (<0.001) residual bend left baked in is imperceptible
+// ("settling flat-ish", per the brief's self-verification wording).
+const FLEX_SETTLE_EPS = 0.001;
+// Task 14 replaces this with real drag-derived curve/twist targets; until
+// then the only thing that ever moves a leaf's flex spring off (0, 0) is a
+// small transient curve on the leaves nearest the front cover while it's
+// visibly opening/closing — a cheap stand-in for "the top pages riffle a
+// little" that the real per-leaf drag will fully take over in Task 14.
+const FLEX_GENTLE_CURVE = 0.15;
+const FLEX_TOP_LEAF_COUNT = 2;
+// Per-frame |Δ coverAngleCurrent| below this reads as "settled", not "still
+// opening/closing" — driven off the already-eased angle (not the raw,
+// instantly-toggled openAmount) so this stays true for the whole ~1s
+// COVER_OPEN_LAMBDA settle window instead of firing for one frame only.
+const FLEX_ANGLE_RATE_EPS = 0.00005;
 
 const IDENTITY_POSE: Pose = { position: [0, 0, 0], quaternion: [0, 0, 0, 1], scale: 1 };
+
+/** Fresh idle FlexState per leaf (6 — matches bookRig.ts's LEAF_COUNT, not
+ * itself exported) — a plain array literal won't do since `leafFlex.fill(0)`
+ * (the pattern `leafAngles` uses) can't reset an array of distinct objects. */
+function makeIdleLeafFlex(): FlexState[] {
+	return [0, 1, 2, 3, 4, 5].map(() => ({ curve: 0, curveVelocity: 0, twist: 0, twistVelocity: 0 }));
+}
 
 // Straight-line camera→book distance at the canonical inspect pose (the
 // camera always targets the book exactly, so this doubles as "distance to
@@ -154,12 +193,30 @@ export function createInspect(deps: {
 	// `coverOpenAmount` (pageFlex.ts) blends between. `coverAngleCurrent` is
 	// the eased frontPivot.rotation.y contribution from open/close (summed
 	// with `hoverCrackAngle` each frame — see updateCoverPivot); `leafAngles`
-	// mirrors it per page-leaf for the placeholder fan.
+	// is the same per-leaf damped rotation.y (Task 13's leafTargets.angle
+	// target, replacing the old placeholder fan).
 	let readingOpen = false;
 	let coverDrag: CoverDrag = { active: false, kind: null, progress: 0 };
 	let coverAngleCurrent = 0;
 	let leafAngles: number[] = [0, 0, 0, 0, 0, 0];
 	let settleTime = 0;
+
+	// Task 13 (§4.5): per-leaf flex spring state + settle-guard bookkeeping.
+	// `leafFlex` is stepFlex's per-leaf FlexState — idle {0,0,0,0} outside the
+	// transient "cover is opening/closing" wire below (Task 14 drives it from
+	// real page-turn drags instead). `leafDeformed` tracks whether a leaf's
+	// sheet geometry currently carries a live (above-FLEX_SETTLE_EPS) baked-in
+	// deform, purely so a reduced-motion transition mid-flex can flatten it
+	// back to exactly flat once instead of leaving a stale bend baked in
+	// forever (normal settling is allowed to leave an imperceptible
+	// sub-epsilon residual — see updateCoverPivot). `currentSpread` is how
+	// many leaves (from the spine) are already turned — introduced this task,
+	// always 0 (every leaf rests, per leafTargets) until Task 14 wires real
+	// page-turn gestures that advance it.
+	let currentSpread = 0;
+	let leafFlex: FlexState[] = makeIdleLeafFlex();
+	let leafDeformed: boolean[] = [false, false, false, false, false, false];
+	let previousCoverAngleForFlex = 0;
 
 	// Cover-drag pointer tracking — a single claimed pointerId at a time
 	// (a second finger/pointer during an active drag is simply ignored by
@@ -283,15 +340,72 @@ export function createInspect(deps: {
 		return Math.max((bookWorldWidth / frustumWidthAtBook) * viewportWidthPx, 1);
 	}
 
+	/** Writes `curve`/`twist` into leaf `i`'s sheet geometry and marks it
+	 * dirty — front/back sheets of a leaf share one geometry (bookRig.ts's
+	 * Task 13 per-pivot clone), so a single write updates both. No-ops
+	 * defensively when the rig has no leaf geometry to deform, which is true
+	 * of every mocked RigHandle in the test suite (carousel.test.ts,
+	 * coverPipeline.test.ts both use empty pagePivots/pageSurfaces arrays) —
+	 * this function is otherwise only exercised via a real bookRig.ts rig in
+	 * the browser. */
+	function applyLeafDeform(rig: RigHandle, i: number, curve: number, twist: number): void {
+		const base = rig.pagePivots[i]?.userData.basePositions as Float32Array | undefined;
+		const sheet = rig.pageSurfaces[i * 2];
+		if (!base || !sheet) return;
+		const out = sheet.geometry.getAttribute('position') as THREE.BufferAttribute;
+		deformSheet(base, out, curve, twist, 1);
+		out.needsUpdate = true;
+		sheet.geometry.computeVertexNormals();
+	}
+
+	/** Resets the per-leaf *state* (not any rig's pivots/geometry) back to
+	 * idle — angle/flex arrays, currentSpread. Callable even with no
+	 * activeRig (forceReset() may run with nothing to unwind on the rig
+	 * side, but the arrays still need to start clean for whatever book is
+	 * opened next). */
+	function resetLeafFlexState(): void {
+		currentSpread = 0;
+		leafAngles.fill(0);
+		leafFlex = makeIdleLeafFlex();
+		leafDeformed.fill(false);
+		previousCoverAngleForFlex = 0;
+	}
+
+	/** Snaps every leaf pivot on `rig` to flat/rest (rotation.y 0,
+	 * position.z restZ) and flattens any live curve/twist baked into its
+	 * sheet geometry back to base — shared by open() (a fresh book always
+	 * starts flat), forceReset() (Task 9 review Finding 4: a surviving rig
+	 * can't carry a mid-flex bend back onto the shelf), and
+	 * beginClosingTransition() (the cover snaps shut instantly here, the
+	 * same "abrupt, not eased" contract reduced motion gets everywhere
+	 * else). Unconditionally re-flattens every leaf's geometry rather than
+	 * checking `leafDeformed` first — cheap (six ~160-vertex writes, only at
+	 * these reset boundaries, never per-frame) and simpler than reasoning
+	 * about which leaves might have a live bend. Also calls
+	 * resetLeafFlexState(). */
+	function resetLeafPivots(rig: RigHandle): void {
+		for (let i = 0; i < rig.pagePivots.length; i++) {
+			const pivot = rig.pagePivots[i];
+			pivot.rotation.y = 0;
+			pivot.position.z = pivot.userData.restZ;
+			applyLeafDeform(rig, i, 0, 0);
+		}
+		resetLeafFlexState();
+	}
+
 	/**
 	 * Advances the frontPivot/pagePivot cover-open transform one frame:
 	 * hover-crack (suppressed while reading open or a drag owns the pivot)
 	 * plus the open/close angle itself (live 1:1 while a drag is active,
 	 * damped toward `coverAngle(openAmount)` at COVER_OPEN_LAMBDA otherwise —
-	 * "damped, λ≈10" per the brief), plus the placeholder per-leaf fan.
-	 * Reduced motion snaps every channel straight to its target. Returns
-	 * whether anything is still easing (mirrors carousel.ts's `ease()`
-	 * settled-boolean convention).
+	 * "damped, λ≈10" per the brief), plus each leaf's rest/turned transform
+	 * (Task 13: `leafTargets` + damping, replacing the Task 12 placeholder
+	 * fan) and its curve/twist flex spring (`stepFlex` + `deformSheet`, only
+	 * while live — see FLEX_SETTLE_EPS). Reduced motion snaps every angle/z
+	 * channel straight to its target and forces flex to exactly (0, 0) with
+	 * no deform work at all. Returns whether anything is still
+	 * easing/springing (mirrors carousel.ts's `ease()` settled-boolean
+	 * convention) — true while any leaf spring is live, per the brief.
 	 */
 	function updateCoverPivot(dt: number): boolean {
 		if (!activeRig) return false;
@@ -308,27 +422,77 @@ export function createInspect(deps: {
 
 		const openAmount = coverOpenAmount(readingOpen, coverDrag);
 		const angleTarget = coverAngle(openAmount);
+		let coverAngleUnsettled = false;
 		if (coverDrag.active) {
 			coverAngleCurrent = angleTarget;
 		} else if (reduced || Math.abs(coverAngleCurrent - angleTarget) < COVER_OPEN_EPS) {
 			coverAngleCurrent = angleTarget;
 		} else {
 			coverAngleCurrent = damp(coverAngleCurrent, angleTarget, COVER_OPEN_LAMBDA, dt);
-			unsettled = true;
+			coverAngleUnsettled = true;
 		}
 		activeRig.frontPivot.rotation.y = coverAngleCurrent + hoverCrackAngle;
+		unsettled = unsettled || coverAngleUnsettled;
+
+		// "Is the cover visibly opening/closing right now" — driven off
+		// coverAngleCurrent's own per-frame delta (not the raw openAmount,
+		// which jumps straight to 0/1 on a click-toggle) so this stays true
+		// across the whole damped-settle window AND during a live drag
+		// (coverAngleCurrent tracks angleTarget 1:1 there, so it still moves
+		// frame-to-frame whenever the user's drag progress does).
+		const coverAngleDelta = coverAngleCurrent - previousCoverAngleForFlex;
+		previousCoverAngleForFlex = coverAngleCurrent;
+		const coverIsAnimating = !reduced && Math.abs(coverAngleDelta) > FLEX_ANGLE_RATE_EPS;
 
 		for (let i = 0; i < activeRig.pagePivots.length; i++) {
-			const leafTarget = LEAF_FAN_STEP * (i + 1) * openAmount;
-			if (coverDrag.active) {
-				leafAngles[i] = leafTarget;
-			} else if (reduced || Math.abs(leafAngles[i] - leafTarget) < COVER_OPEN_EPS) {
-				leafAngles[i] = leafTarget;
+			const pivot = activeRig.pagePivots[i];
+			const target = leafTargets(i, currentSpread, openAmount);
+			const targetZ = THREE.MathUtils.lerp(pivot.userData.restZ, pivot.userData.turnedZ, target.z);
+
+			if (reduced) {
+				leafAngles[i] = target.angle;
+				pivot.rotation.y = target.angle;
+				pivot.position.z = targetZ;
 			} else {
-				leafAngles[i] = damp(leafAngles[i], leafTarget, COVER_OPEN_LAMBDA, dt);
+				if (Math.abs(leafAngles[i] - target.angle) < LEAF_ANGLE_EPS) {
+					leafAngles[i] = target.angle;
+				} else {
+					leafAngles[i] = damp(leafAngles[i], target.angle, LEAF_LAMBDA, dt);
+					unsettled = true;
+				}
+				pivot.rotation.y = leafAngles[i];
+
+				if (Math.abs(pivot.position.z - targetZ) < LEAF_Z_EPS) {
+					pivot.position.z = targetZ;
+				} else {
+					pivot.position.z = damp(pivot.position.z, targetZ, LEAF_LAMBDA, dt);
+					unsettled = true;
+				}
+			}
+
+			if (reduced) {
+				leafFlex[i] = { curve: 0, curveVelocity: 0, twist: 0, twistVelocity: 0 };
+				if (leafDeformed[i]) {
+					applyLeafDeform(activeRig, i, 0, 0);
+					leafDeformed[i] = false;
+				}
+				continue;
+			}
+
+			const isTopLeaf = i >= activeRig.pagePivots.length - FLEX_TOP_LEAF_COUNT;
+			const targetCurve = coverIsAnimating && isTopLeaf ? FLEX_GENTLE_CURVE : 0;
+			leafFlex[i] = stepFlex(leafFlex[i], targetCurve, 0, dt);
+			const flex = leafFlex[i];
+			const flexLive =
+				Math.abs(flex.curve) + Math.abs(flex.twist) > FLEX_SETTLE_EPS ||
+				Math.abs(flex.curveVelocity) > FLEX_SETTLE_EPS ||
+				Math.abs(flex.twistVelocity) > FLEX_SETTLE_EPS;
+
+			if (flexLive) {
+				applyLeafDeform(activeRig, i, flex.curve, flex.twist);
 				unsettled = true;
 			}
-			activeRig.pagePivots[i].rotation.y = leafAngles[i];
+			leafDeformed[i] = flexLive;
 		}
 
 		return unsettled;
@@ -543,13 +707,14 @@ export function createInspect(deps: {
 		readingOpen = false;
 		coverDrag = { active: false, kind: null, progress: 0 };
 		coverAngleCurrent = 0;
-		leafAngles.fill(0);
 		coverPointerId = null;
 		coverDragKindAtStart = null;
 		settleTime = 0;
 		if (rig) {
 			rig.frontPivot.rotation.y = 0;
-			for (const pivot of rig.pagePivots) pivot.rotation.y = 0;
+			resetLeafPivots(rig);
+		} else {
+			resetLeafFlexState();
 		}
 
 		activeRig = null;
@@ -615,11 +780,10 @@ export function createInspect(deps: {
 		readingOpen = false;
 		coverDrag = { active: false, kind: null, progress: 0 };
 		coverAngleCurrent = 0;
-		leafAngles.fill(0);
 		coverPointerId = null;
 		coverDragKindAtStart = null;
 		settleTime = 0;
-		for (const pivot of rig.pagePivots) pivot.rotation.y = 0;
+		resetLeafPivots(rig);
 
 		machine.to('opening');
 		phase = 'opening';
@@ -648,11 +812,10 @@ export function createInspect(deps: {
 		// shelf-return transition begins regardless of whether the ease
 		// actually converged in time.
 		rig.frontPivot.rotation.y = 0;
-		for (const pivot of rig.pagePivots) pivot.rotation.y = 0;
+		resetLeafPivots(rig);
 		coverAngleCurrent = 0;
 		hoverCrackAngle = 0;
 		hoverCrackTarget = 0;
-		leafAngles.fill(0);
 
 		controls.enabled = false;
 
