@@ -69,7 +69,7 @@ export function buildPalette(cloth: string, foil: string): BookPalette {
 		paper: mixHex(cloth, '#171a20', 0.45),
 		paperPale: '#f1eadf',
 		ink: dark ? '#f4eee6' : '#171914',
-		floor: mixHex(cloth, '#d8c8aa', 0.72),
+		floor: mixHex(cloth, '#221a14', 0.7),
 		light: mixHex(foil, '#f4d7b9', 0.6),
 		fill: mixHex(cloth, '#d8e3e7', 0.75)
 	};

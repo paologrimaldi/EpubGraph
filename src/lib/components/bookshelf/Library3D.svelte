@@ -16,7 +16,7 @@
 	const PLACEHOLDER_PALETTE: ScenePalette = {
 		backdrop: '#232630',
 		fog: '#232630',
-		floor: '#2a2620',
+		floor: '#1d1713',
 		key: '#f4d7b9',
 		fill: '#9fb3c9',
 		accent: '#c87046',

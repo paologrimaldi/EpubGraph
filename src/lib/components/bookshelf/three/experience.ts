@@ -21,8 +21,8 @@ export interface Experience {
 	onReducedMotionChange(cb: ReducedMotionCallback | null): void;
 }
 
-export const SHELF_CAMERA_POSITION: [number, number, number] = [0, 1.9, 6.1];
-export const SHELF_CAMERA_TARGET: [number, number, number] = [0, 1.25, 0];
+export const SHELF_CAMERA_POSITION: [number, number, number] = [0, 1.45, 6.1];
+export const SHELF_CAMERA_TARGET: [number, number, number] = [0, 1.15, 0];
 export const SHELF_TOP = 0.47; // walnut board top Y — carousel ground truth
 
 const DPR_NARROW_BREAKPOINT = 820;

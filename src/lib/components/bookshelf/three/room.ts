@@ -16,9 +16,10 @@ const DUST_SEED = 20260803;
 const DUST_COUNT = 110;
 
 export function addRoom(scene: THREE.Scene, shelfStage: THREE.Group, reducedMotion: boolean): Room {
-	// Floor — 30×20 plane lying flat, just under the shelf.
+	// Floor — 60×40 plane lying flat, just under the shelf (large enough that
+	// its far edges never seam into frame at the near-level shelf camera angle).
 	const floorMaterial = new THREE.MeshStandardMaterial({ color: '#efe7d8', roughness: 1, metalness: 0 });
-	const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 20), floorMaterial);
+	const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), floorMaterial);
 	floor.rotation.x = -Math.PI / 2;
 	floor.position.set(0, -0.02, 0);
 	floor.receiveShadow = true;
