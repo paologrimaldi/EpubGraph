@@ -7,8 +7,19 @@
 	import type { LightRig } from './three/lights';
 	import type { ScenePalette } from './types/experience';
 
-	type ThemeModule = typeof import('./three/theme');
-	type IdentityModule = typeof import('./three/bookIdentity');
+	// Warm neutral placeholder theme — real book-driven theming (blendPaletteWithMode
+	// + paletteFromSeed) arrives once the carousel task wires an actual selection;
+	// paletteFromSeed(0)'s dark-navy cloth blended to a cold gray-taupe backdrop, so
+	// for now the empty studio just uses this literal directly.
+	const PLACEHOLDER_PALETTE: ScenePalette = {
+		backdrop: '#e8ddc9',
+		fog: '#e8ddc9',
+		floor: '#dccdb0',
+		key: '#f4d7b9',
+		fill: '#d8e3e7',
+		accent: '#c87046',
+		shelf: '#3a2118'
+	};
 
 	// Props (Svelte 4 syntax). books/selectedBookId feed the carousel + theming
 	// wired up in later tasks; textureQuality gates texture generation quality
@@ -42,9 +53,6 @@
 	// disposal handle, orphaning a WebGL context.
 	let destroyed = false;
 
-	let blendPaletteWithMode: ThemeModule['blendPaletteWithMode'] | null = null;
-	let paletteFromSeed: IdentityModule['paletteFromSeed'] | null = null;
-
 	// Detect current dark mode state
 	function isDarkMode(): boolean {
 		if (!browser) return false;
@@ -62,12 +70,6 @@
 		lights.fill.color.set(palette.fill);
 	}
 
-	// Placeholder identity (seed 0) until Task 8 wires the real selected book.
-	function placeholderPalette(dark: boolean): ScenePalette | null {
-		if (!blendPaletteWithMode || !paletteFromSeed) return null;
-		return blendPaletteWithMode(paletteFromSeed(0), dark);
-	}
-
 	// On-demand frame callback: settles the dust drift for a bounded window after
 	// (re)init, then stops requesting frames — an idle studio renders 0 fps.
 	function handleFrame(dt: number, elapsed: number): boolean {
@@ -83,12 +85,10 @@
 		if (!browser || !container) return;
 
 		// Dynamic imports for Three.js (client-only)
-		const [experienceModule, roomModule, lightsModule, themeModule, identityModule] = await Promise.all([
+		const [experienceModule, roomModule, lightsModule] = await Promise.all([
 			import('./three/experience'),
 			import('./three/room'),
-			import('./three/lights'),
-			import('./three/theme'),
-			import('./three/bookIdentity')
+			import('./three/lights')
 		]);
 
 		// The component may have been torn down while the imports above were
@@ -96,17 +96,13 @@
 		// listener/rAF loop is ever orphaned without a disposal handle.
 		if (destroyed) return;
 
-		blendPaletteWithMode = themeModule.blendPaletteWithMode;
-		paletteFromSeed = identityModule.paletteFromSeed;
-
 		currentDarkMode = isDarkMode();
 
 		experience = experienceModule.createExperience(container);
 		room = roomModule.addRoom(experience.scene, experience.shelfStage, experience.reducedMotion());
 		lights = lightsModule.addLights(experience.scene);
 
-		const palette = placeholderPalette(currentDarkMode);
-		if (palette) applyScenePalette(palette);
+		applyScenePalette(PLACEHOLDER_PALETTE);
 
 		experience.onFrame(handleFrame);
 		experience.requestFrame();
@@ -123,8 +119,10 @@
 		const newDarkMode = isDarkMode();
 		if (newDarkMode === currentDarkMode) return;
 		currentDarkMode = newDarkMode;
-		const palette = placeholderPalette(currentDarkMode);
-		if (palette) applyScenePalette(palette);
+		// The placeholder palette is a fixed warm neutral (not mode-dependent) until
+		// real book theming lands, so this re-applies the same values — kept wired
+		// so the observer/requestFrame plumbing is already correct for that task.
+		applyScenePalette(PLACEHOLDER_PALETTE);
 		experience.requestFrame();
 	}
 

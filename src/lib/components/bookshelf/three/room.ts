@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { seededRandom } from './bookIdentity';
 import { SHELF_TOP } from './experience';
-import { sharedContactShadowTexture, sharedWoodGrainTexture } from './textures/shared';
+import { sharedBackdropGlowTexture, sharedContactShadowTexture, sharedWoodGrainTexture } from './textures/shared';
 
 export interface Room {
 	themeTargets: {
@@ -24,8 +24,15 @@ export function addRoom(scene: THREE.Scene, shelfStage: THREE.Group, reducedMoti
 	floor.receiveShadow = true;
 	scene.add(floor);
 
-	// Backdrop — 28×14 plane facing the camera behind the shelf.
-	const backdropMaterial = new THREE.MeshStandardMaterial({ color: '#efe7d8', roughness: 1, metalness: 0 });
+	// Backdrop — 28×14 plane facing the camera behind the shelf. The glow map
+	// gives it a soft studio hot-spot; .color (set by applyScenePalette) keeps
+	// tinting it multiplicatively on top, same as before.
+	const backdropMaterial = new THREE.MeshStandardMaterial({
+		color: '#efe7d8',
+		roughness: 1,
+		metalness: 0,
+		map: sharedBackdropGlowTexture()
+	});
 	const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(28, 14), backdropMaterial);
 	backdrop.position.set(0, 5.5, -3.3);
 	backdrop.receiveShadow = true;
@@ -79,11 +86,11 @@ export function addRoom(scene: THREE.Scene, shelfStage: THREE.Group, reducedMoti
 	const shadowMaterial = new THREE.MeshBasicMaterial({
 		color: 0x000000,
 		transparent: true,
-		opacity: 0.22,
+		opacity: 0.15,
 		alphaMap: sharedContactShadowTexture(),
 		depthWrite: false
 	});
-	const shadowStrip = new THREE.Mesh(new THREE.PlaneGeometry(16.5, 0.9), shadowMaterial);
+	const shadowStrip = new THREE.Mesh(new THREE.PlaneGeometry(16.5, 0.5), shadowMaterial);
 	shadowStrip.rotation.x = -Math.PI / 2;
 	shadowStrip.position.set(0, 0.49, 0.06);
 	shelfStage.add(shadowStrip);

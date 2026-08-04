@@ -8,6 +8,7 @@ const WOOD_GRAIN_SEED = 20260803;
 
 let contactShadowTexture: THREE.CanvasTexture | null = null;
 let woodGrainTexture: THREE.CanvasTexture | null = null;
+let backdropGlowTexture: THREE.CanvasTexture | null = null;
 
 /** 128² radial gradient (white center → black edge) used as an alphaMap for baked contact shadows. */
 export function sharedContactShadowTexture(): THREE.CanvasTexture {
@@ -64,8 +65,36 @@ export function sharedWoodGrainTexture(): THREE.CanvasTexture {
 	woodGrainTexture = new THREE.CanvasTexture(canvas);
 	woodGrainTexture.wrapS = THREE.RepeatWrapping;
 	woodGrainTexture.wrapT = THREE.RepeatWrapping;
+	// The board is 17 units wide; a single 256px tile stretched across it reads
+	// as smeared horizontal bands. Repeat it along its length so grain streaks
+	// stay streak-sized instead of scaling up with the board.
+	woodGrainTexture.repeat.set(7, 1);
 	woodGrainTexture.needsUpdate = true;
 	return woodGrainTexture;
+}
+
+/** 256² radial studio-glow paint (bright center → warm gray edge), used as the backdrop's color map. */
+export function sharedBackdropGlowTexture(): THREE.CanvasTexture {
+	if (backdropGlowTexture) return backdropGlowTexture;
+
+	const size = 256;
+	const canvas = document.createElement('canvas');
+	canvas.width = size;
+	canvas.height = size;
+	const ctx = canvas.getContext('2d')!;
+
+	const centerX = size * 0.5;
+	const centerY = size * 0.62;
+	const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, size * 0.75);
+	gradient.addColorStop(0, '#ffffff');
+	gradient.addColorStop(1, '#b8b0a2');
+	ctx.fillStyle = gradient;
+	ctx.fillRect(0, 0, size, size);
+
+	backdropGlowTexture = new THREE.CanvasTexture(canvas);
+	backdropGlowTexture.colorSpace = THREE.SRGBColorSpace;
+	backdropGlowTexture.needsUpdate = true;
+	return backdropGlowTexture;
 }
 
 /** Disposes and clears the memoized shared textures (app-lifetime teardown / HMR, not per-mount). */
@@ -74,4 +103,6 @@ export function disposeSharedTextures(): void {
 	contactShadowTexture = null;
 	woodGrainTexture?.dispose();
 	woodGrainTexture = null;
+	backdropGlowTexture?.dispose();
+	backdropGlowTexture = null;
 }
