@@ -145,16 +145,33 @@ reference's deterministic transition:
 - Only one book inspects at a time; navigation inputs are inert during
   `opening`/`closing`/`inspect` (markers/prev/next disabled state).
 
-### 4.4 Page turning — Phase 2
+### 4.4 Page turning — Phase 2 (committed scope)
 
-Full reference-style reading (drag-open cover, 6 segmented flexible leaves with
-curve/twist spring physics, committed page turns, drag-closed cover) is **Phase 2**,
-gated on Phase 1 shipping. Phase 1 books still *have* the closed page block, edges,
-endpapers, and hover cover-crack — so Phase 2 adds behavior, not geometry rework.
-Phase 2 page content is generated, not EPUB content: title page (title, author,
-series, publisher, year), an "About" spread typeset from `book.description`, and a
-colophon-style metadata page (ISBN, language, file size, added date). Page-turn
-prev/next buttons join the sidebar when Phase 2 lands.
+Full reference-style reading ships as the second milestone of the same effort.
+Phase 1 books already *have* the closed page block, edges, endpapers, flexible-leaf
+geometry, and hover cover-crack — Phase 2 adds behavior, not geometry rework:
+
+- **Opening the book (inspect mode only):** cover hover cracks the front board;
+  click on the cover, or drag it, opens to the title page. `openAmount` is a single
+  scalar driving cover pivot angle and page fan (reference's `getDetailOpenAmount`
+  pattern: drag progress while dragging, 0/1 when settled).
+- **Page drag:** pointer-drag on a page turns it; the active leaf's segmented
+  planes bend and twist via spring-damped `curve`/`twist` values with velocity
+  (reference's `updateFlexiblePage`), settling with a cloth-like curve. Release
+  past the commit threshold (or with enough velocity) commits the turn; a
+  committed page must not spring back. Drags work in both directions.
+- **Closing:** from the first page, dragging the cover closed reverses
+  `openAmount`; the sidebar's close action and Escape settle pages closed before
+  the closing transition runs (§4.3). Page state (`currentSpread`, open flag)
+  resets when returning to the shelf.
+- **Controls & a11y:** Open book / prev page / next page buttons in the inspect
+  HUD mirror every gesture (`aria-pressed` on the open toggle, disabled states at
+  ends, live-region announcements per spread). Reduced motion: pages jump between
+  spreads with no flex animation.
+- **Content is generated, not EPUB-rendered:** title page (title, author, series,
+  publisher, year), an "About" spread typeset from `book.description`, and a
+  colophon-style metadata page (ISBN, language, file size, added date). Books with
+  no description show the colophon spread only.
 
 ### 4.5 States, accessibility, degradation
 
@@ -344,14 +361,31 @@ Manual verification checklist (mirrors the reference's own):
 8. Zero console errors/warnings; route unmount leaks no WebGL resources
    (`renderer.info` counts return to baseline on remount).
 
+Phase 2 additions (mirrors the reference's own verification list):
+
+9. Click and drag both open the cover; drag forward and backward through multiple
+   spreads; a committed page never springs back.
+10. Drag the cover closed from the first page; return to shelf from both a closed
+    and an open book — pages settle before the closing transition.
+11. HUD buttons reproduce every gesture; spread announcements fire; reduced-motion
+    spread jumps are instant.
+
 ## 9. Implementation phasing
 
-- **Phase 1 (this spec's commitment):** scene/room/lights, book rig (closed book,
-  full anatomy), carousel browsing + HUD, inspect open/close with sidebar
-  integration, real covers + palette theming, a11y, reduced motion, on-demand
-  rendering, disposal, tests above.
-- **Phase 2 (follow-up spec-lite):** flexible page physics, drag-open/close cover,
-  generated interior pages, page navigation controls.
+Both phases are committed scope of this spec and land on the same feature branch;
+they are **sequential milestones, not parallel tracks** — Phase 2 animates the rig,
+state machine, and inspect mode that Phase 1 builds (same `bookRig.ts`,
+`inspect.ts`, `state.ts` files), so concurrent implementation would conflict on
+every core module. Parallelism is available *within* a milestone (e.g., texture
+modules, room/lights, and carousel math are independent workstreams inside
+Phase 1).
+
+- **Phase 1:** scene/room/lights, book rig (closed book, full anatomy including
+  flexible-leaf geometry), carousel browsing + HUD, inspect open/close with
+  sidebar integration, real covers + palette theming, a11y, reduced motion,
+  on-demand rendering, disposal, tests above.
+- **Phase 2:** flexible page physics, drag-open/close cover, generated interior
+  page content, page navigation controls (§4.4).
 
 ## 10. Open questions (defaults chosen; flag if wrong)
 
