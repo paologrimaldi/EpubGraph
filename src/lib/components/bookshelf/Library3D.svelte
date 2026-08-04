@@ -99,6 +99,25 @@
 	let liveMessage = '';
 	let announceTimer: ReturnType<typeof setTimeout> | null = null;
 
+	// Task 9 review Finding 1: a DOM `click` fires after any mousedown/mouseup
+	// pair regardless of how far the pointer traveled between them, and
+	// OrbitControls (active during inspect) suppresses nothing — so releasing
+	// an orbit drag over empty canvas used to both rotate the camera *and*
+	// close inspect. Recording pointerdown position and checking travel in
+	// handleClick lets orbit-dragging and click-empty-to-close coexist.
+	let pointerDownClient: { x: number; y: number } | null = null;
+	const CLICK_DRAG_THRESHOLD_PX = 6;
+
+	// Task 9 review Finding 3: the sidebar's own Close button nulls
+	// `selectedBookId` externally. If that happens while a book is still
+	// mid-'opening' (not yet 'inspect'), the reactive guard below used to
+	// no-op (it only checked `mode === 'inspect'`), hiding the sidebar while
+	// leaving the book fully inspected once opening finished — a desync
+	// between the sidebar and the mode machine. Latching this flag and
+	// draining it the moment `mode` reaches 'inspect' (see handleFrame)
+	// closes immediately instead.
+	let pendingClose = false;
+
 	$: selectedBook = books[selectedIndex] ?? null;
 
 	// Detect current dark mode state
@@ -135,6 +154,15 @@
 		const themeMoving = themeDriver?.update(dt) ?? false;
 		const inspectMoving = inspect?.update(dt) ?? false;
 		syncMode();
+		// Drain a close that arrived while still 'opening' (Finding 3) the
+		// instant 'inspect' is reached — at most one frame after
+		// inspect.update() above drove finishOpening(), never waiting on a
+		// further external event.
+		if (pendingClose && mode === 'inspect') {
+			pendingClose = false;
+			closeInspect();
+			syncMode(); // reflect the closeInspect()-driven 'closing' transition now, not next frame
+		}
 		return dustSettling || carouselMoving || themeMoving || inspectMoving;
 	}
 
@@ -276,6 +304,18 @@
 			}
 			return bookRigModule!.createBookRig(identity, textureQuality);
 		});
+
+		// Task 9 review Finding 4: `books` replacing mid-inspect (e.g. the queue
+		// mutating while a book is being inspected) must not leave a disposed
+		// rig scene-parented and the mode machine stuck outside 'shelf'. Sever
+		// InspectController's ownership of its rig instantly — BEFORE any
+		// dispose() call below — so the diff/dispose/setRigs flow that follows
+		// treats it like any other rig (see inspect.ts's forceReset() doc).
+		if (inspect && modeMachine.mode !== 'shelf') {
+			inspect.forceReset();
+			syncMode();
+		}
+
 		for (const removed of existingById.values()) removed.dispose();
 
 		rigs = newRigs;
@@ -415,15 +455,38 @@
 		experience?.requestFrame();
 	}
 
+	// Records where a click gesture started (Task 9 review Finding 1) so
+	// handleClick can tell a genuine click apart from the mouseup that ends an
+	// OrbitControls drag — a DOM `click` fires after any mousedown/mouseup
+	// pair regardless of travel distance, and OrbitControls doesn't suppress
+	// it, so without this an orbit-drag release over empty canvas would both
+	// rotate the camera *and* close inspect.
+	function handlePointerDown(event: PointerEvent): void {
+		pointerDownClient = { x: event.clientX, y: event.clientY };
+	}
+
+	function clickTraveledPastThreshold(event: MouseEvent): boolean {
+		if (!pointerDownClient) return false;
+		const dx = event.clientX - pointerDownClient.x;
+		const dy = event.clientY - pointerDownClient.y;
+		return Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX;
+	}
+
 	function handleClick(event: MouseEvent): void {
 		if (!carousel) return;
+		const dragged = clickTraveledPastThreshold(event);
+		pointerDownClient = null;
 		if (modeMachine.mode === 'inspect') {
 			// Click on the book itself: no-op (still inspecting). Click on empty
-			// canvas: close.
+			// canvas: close — but only for a genuine click, not an orbit-drag
+			// release (see handlePointerDown's doc above); orbit and
+			// click-empty-to-close must coexist.
+			if (dragged) return;
 			if (!raycastBook(event)) closeInspect();
 			return;
 		}
 		if (modeMachine.mode !== 'shelf') return; // opening/closing: inert
+		if (dragged) return;
 		const hit = raycastBook(event);
 		if (!hit) return;
 		if (hit.index === carousel.selectedIndex) {
@@ -483,6 +546,7 @@
 		const book = books[carousel.selectedIndex];
 		if (!rig || !book) return;
 		const origin = (browser ? (document.activeElement as HTMLElement | null) : null) ?? container;
+		pendingClose = false; // fresh open — don't inherit a stale latch from a prior cycle
 		inspect.open(rig, origin);
 		syncMode();
 		selectedBookId = book.id;
@@ -510,8 +574,21 @@
 	// External close (e.g. the BookDetail sidebar's own close button, wired
 	// via bind:selectedBookId) — only acts while genuinely inspecting so a
 	// parent that simply hasn't set selectedBookId yet doesn't do anything.
-	$: if (browser && modeMachine.mode === 'inspect' && selectedBookId === null) {
-		closeInspect();
+	// Task 9 review Finding 3: a close arriving mid-'opening' (the sidebar's
+	// button clicked before the 0.9s open transition finishes) used to no-op
+	// here — this reactive block only re-runs when `selectedBookId` itself
+	// changes, and at that instant `modeMachine.mode` was still 'opening', not
+	// 'inspect', so the check silently missed it. That hid the sidebar while
+	// leaving the book fully inspected once opening finished: a lasting
+	// desync between the sidebar and the mode machine. Latching a pendingClose
+	// flag here and draining it the moment `mode` reaches 'inspect' (see
+	// handleFrame) closes immediately instead of leaving it stuck open.
+	$: if (browser && selectedBookId === null) {
+		if (modeMachine.mode === 'inspect') {
+			closeInspect();
+		} else if (modeMachine.mode === 'opening') {
+			pendingClose = true;
+		}
 	}
 
 	interface Disposable {
@@ -604,6 +681,7 @@
 		aria-label="Up Next 3D shelf"
 		tabindex="0"
 		on:wheel={handleWheel}
+		on:pointerdown={handlePointerDown}
 		on:pointermove={handlePointerMove}
 		on:pointerleave={handlePointerLeave}
 		on:click={handleClick}

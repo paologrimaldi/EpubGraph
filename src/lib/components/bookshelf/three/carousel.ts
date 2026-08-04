@@ -144,7 +144,14 @@ export function createCarousel(
 	}
 
 	function setRigs(rigs: RigHandle[]): void {
-		for (const runtime of runtimes) shelfStage.remove(runtime.rig.root);
+		// Defensive removal from wherever a root's *actual* parent is (Task 9
+		// review Finding 4b), not an assumed `shelfStage` — a rig detached for
+		// inspect (scene-parented) makes `shelfStage.remove(...)` a silent
+		// no-op, which used to leave a disposed-material rig still rendering.
+		// InspectController.forceReset() now also reattaches to shelfStage
+		// before this ever runs (Finding 4a), so this is belt-and-suspenders
+		// against any other future path that leaves a root parented elsewhere.
+		for (const runtime of runtimes) runtime.rig.root.parent?.remove(runtime.rig.root);
 
 		runtimes = rigs.map((rig) => ({
 			rig,

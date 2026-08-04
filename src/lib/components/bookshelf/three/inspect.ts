@@ -21,6 +21,11 @@ export interface InspectController {
 	// pointer over the (single) inspected book" — no bookId matching needed,
 	// there's only ever one candidate.
 	setHovered(isHovered: boolean): void;
+	// Instant, announcement-free return to 'shelf' — for when the caller is
+	// about to invalidate the rig this controller is tracking out from under
+	// it (Task 9 review Finding 4: `books` prop replaced mid-inspect). See
+	// the implementation's doc comment for the full contract.
+	forceReset(): void;
 	readonly activeRig: RigHandle | null;
 }
 
@@ -44,7 +49,6 @@ const SHELF_RETURN_T_DIVISOR = 0.76;
 // consumes it so the two can't silently drift apart.
 export const SIDEBAR_WIDTH_PX = 352;
 
-const ORBIT_MIN_DISTANCE = 2.8;
 const ORBIT_MAX_DISTANCE = 7.2;
 const ORBIT_MIN_POLAR = 0.24 * Math.PI;
 const ORBIT_MAX_POLAR = 0.76 * Math.PI;
@@ -66,6 +70,13 @@ const IDENTITY_POSE: Pose = { position: [0, 0, 0], quaternion: [0, 0, 0, 1], sca
 const INSPECT_DISTANCE = new THREE.Vector3(...INSPECT_CAMERA_POSITION).distanceTo(
 	new THREE.Vector3(...INSPECT_BOOK_POSITION)
 );
+
+// Task 9 review Finding 2: a literal minDistance of 2.8 left ~0 dolly-in
+// headroom (INSPECT_DISTANCE ≈ 2.8009 — the canonical pose already sits at
+// the clamp). Deriving the clamp from the pose instead of a hand-picked
+// constant guarantees real headroom to zoom in, and stays correct if the
+// inspect pose constants above are ever retuned again.
+const ORBIT_MIN_DISTANCE = INSPECT_DISTANCE * 0.72;
 
 /**
  * Deterministic shelf⇄inspect choreography (§4.3). Owns the camera and
@@ -314,6 +325,74 @@ export function createInspect(deps: {
 		}
 	}
 
+	/**
+	 * Instant, announcement-free return to 'shelf' (Task 9 review Finding 4).
+	 * Unlike close(), this doesn't animate and doesn't require being in
+	 * 'inspect' — it works from any non-shelf phase (opening/inspect/
+	 * closing), because the caller (Library3D.svelte's rebuildRigs) needs to
+	 * sever this controller's ownership of its rig *before* deciding whether
+	 * that rig survives the incoming `books` diff or gets disposed.
+	 *
+	 * Mirrors what finishClosing() does to the shared channels (camera,
+	 * shelfStage, view offset, controls) but:
+	 *  - reattaches the rig to shelfStage and clears `detachedRig` even
+	 *    though no close() ever ran, so a surviving rig re-enters the
+	 *    carousel's normal update()/snapAll() loop instead of being skipped
+	 *    forever (carousel.ts special-cases `rig === detachedRig` by
+	 *    reference — that reference has to be cleared here, not left for a
+	 *    future close() that may never come);
+	 *  - walks the mode machine's ring (shelf→opening→inspect→closing→shelf)
+	 *    one legal `to()` step at a time until it reaches 'shelf', since
+	 *    `to()` refuses to skip states;
+	 *  - never calls announce() — this is a silent invalidation, not a
+	 *    user-driven close.
+	 *
+	 * Must be called by the caller BEFORE it disposes any rig: leaving the
+	 * (possibly about-to-be-disposed) rig's root parented under shelfStage
+	 * here is what lets `Carousel.setRigs()`'s old-root cleanup (Finding 4b)
+	 * find and remove it, instead of it staying orphaned directly on `scene`
+	 * (where `shelfStage.remove(...)` is a no-op) — a disposed-material rig
+	 * otherwise stuck rendering in the scene forever.
+	 */
+	function forceReset(): void {
+		if (machine.mode === 'shelf') return; // nothing to unwind
+
+		const rig = activeRig;
+		if (rig) {
+			experience.shelfStage.attach(rig.root);
+			rig.contactShadow.visible = true;
+			rig.setOpacity(1);
+		}
+		carousel.setDetachedRig(null);
+
+		controls.enabled = false;
+		clearOrbitMomentum();
+
+		camera.position.set(...SHELF_CAMERA_POSITION);
+		cameraTarget.set(...SHELF_CAMERA_TARGET);
+		camera.lookAt(cameraTarget);
+
+		experience.shelfStage.position.set(0, 0, 0);
+		currentViewOffset = 0;
+		experience.setViewOffsetX(0);
+
+		hoverCrackTarget = 0;
+		hoverCrackAngle = 0;
+
+		activeRig = null;
+		originEl = null;
+		phase = 'idle';
+		transitionTime = 0;
+
+		// `to()` only ever advances one ring-step — cascade through however
+		// many steps the current mode is from 'shelf'. Each `if` re-reads
+		// `machine.mode` fresh, so this walks opening→inspect→closing→shelf,
+		// inspect→closing→shelf, or closing→shelf as appropriate.
+		if (machine.mode === 'opening') machine.to('inspect');
+		if (machine.mode === 'inspect') machine.to('closing');
+		if (machine.mode === 'closing') machine.to('shelf');
+	}
+
 	function open(rig: RigHandle, origin: HTMLElement | null): void {
 		if (!machine.can('opening')) return;
 
@@ -451,6 +530,7 @@ export function createInspect(deps: {
 		update,
 		resetView,
 		setHovered,
+		forceReset,
 		get activeRig() {
 			return activeRig;
 		}

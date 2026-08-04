@@ -122,6 +122,32 @@ describe('carousel navigation convergence', () => {
 	});
 });
 
+describe('carousel setRigs old-root cleanup (Task 9 review Finding 4b)', () => {
+	it("removes a scene-parented (detached) rig's root from its actual parent, not just shelfStage", () => {
+		const reduced = { value: false };
+		const { carousel, rigs, shelfStage } = makeCarousel(3, reduced);
+
+		// Simulate inspect.ts detaching a rig directly onto `scene` (or, here,
+		// a stand-in parent) instead of leaving it under `shelfStage` — this is
+		// exactly what happens for the duration of an inspect open/close.
+		const detached = rigs[0];
+		const sceneStandIn = new THREE.Group();
+		carousel.setDetachedRig(detached);
+		sceneStandIn.add(detached.root); // Object3D.add() reparents, dropping it from shelfStage
+		expect(detached.root.parent).toBe(sceneStandIn);
+
+		// A fresh setRigs() call (e.g. Library3D's rebuildRigs replacing the
+		// `books` list) must clean up every previously-managed root regardless
+		// of which parent it's actually under right now — removing only from
+		// `shelfStage` would silently no-op for this one and leave a
+		// (soon to be disposed) rig rendering in the scene forever.
+		carousel.setRigs([makeMockRig(101), makeMockRig(102)]);
+
+		expect(detached.root.parent).toBeNull();
+		expect(shelfStage.children).not.toContain(detached.root);
+	});
+});
+
 describe('carousel seam wrap', () => {
 	it('snaps x and drops opacity for the rig that crosses the seam, then eases it back up', () => {
 		const reduced = { value: false };
