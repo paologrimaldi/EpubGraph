@@ -121,11 +121,17 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number,
 
 type MotifPainter = (ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]) => void;
 
+// Each motif is scaled so its natural footprint spans roughly 1.9–2.4× the
+// `r` passed in from paintCoverLayer (which sizes `r` off canvas width so the
+// composition reads as a hero element, not a small mark) — "bigger nested
+// brackets, full-circle arcs, tall caret column, large orbit rings, wide
+// horizon stack, big concentric frames" per the visual checkpoint.
+
 function drawNestedBrackets(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]): void {
 	const count = 3;
 	for (let i = 0; i < count; i++) {
-		const rr = r * (1 - i * 0.24) * (0.9 + jitter[i] * 0.2);
-		const arm = rr * 0.42;
+		const rr = r * (1 - i * 0.22) * (1.0 + jitter[i] * 0.16);
+		const arm = rr * 0.5;
 		ctx.beginPath();
 		ctx.moveTo(cx - rr + arm, cy - rr);
 		ctx.lineTo(cx - rr, cy - rr);
@@ -142,38 +148,38 @@ function drawNestedBrackets(ctx: CanvasRenderingContext2D, cx: number, cy: numbe
 function drawInterlacedArcs(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]): void {
 	const n = 3;
 	for (let i = 0; i < n; i++) {
-		const offset = (i - (n - 1) / 2) * r * 0.42 * (0.85 + jitter[i] * 0.3);
+		const offset = (i - (n - 1) / 2) * r * 0.4 * (0.85 + jitter[i] * 0.3);
 		ctx.beginPath();
-		ctx.arc(cx + offset, cy, r * 0.55, 0, Math.PI * 2);
+		ctx.arc(cx + offset, cy, r * 0.68, 0, Math.PI * 2);
 		ctx.stroke();
 	}
 }
 
 function drawCaretColumn(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]): void {
 	const n = 5;
-	const spacing = r * 0.34;
+	const spacing = r * 0.46;
 	for (let i = 0; i < n; i++) {
 		const y = cy - ((n - 1) * spacing) / 2 + i * spacing + (jitter[i] - 0.5) * spacing * 0.3;
-		const w = r * 0.5;
+		const w = r * 0.62;
 		ctx.beginPath();
-		ctx.moveTo(cx - w / 2, y + w * 0.3);
-		ctx.lineTo(cx, y - w * 0.3);
-		ctx.lineTo(cx + w / 2, y + w * 0.3);
+		ctx.moveTo(cx - w / 2, y + w * 0.32);
+		ctx.lineTo(cx, y - w * 0.32);
+		ctx.lineTo(cx + w / 2, y + w * 0.32);
 		ctx.stroke();
 	}
 }
 
 function drawOrbitCircles(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]): void {
 	ctx.beginPath();
-	ctx.arc(cx, cy, r * 0.62, 0, Math.PI * 2);
+	ctx.arc(cx, cy, r * 0.85, 0, Math.PI * 2);
 	ctx.stroke();
 	const n = 4;
 	for (let i = 0; i < n; i++) {
 		const angle = (i / n) * Math.PI * 2 + jitter[i] * Math.PI * 2;
-		const ox = cx + Math.cos(angle) * r * 0.62;
-		const oy = cy + Math.sin(angle) * r * 0.62;
+		const ox = cx + Math.cos(angle) * r * 0.85;
+		const oy = cy + Math.sin(angle) * r * 0.85;
 		ctx.beginPath();
-		ctx.arc(ox, oy, r * 0.07, 0, Math.PI * 2);
+		ctx.arc(ox, oy, r * 0.11, 0, Math.PI * 2);
 		ctx.stroke();
 	}
 }
@@ -181,8 +187,8 @@ function drawOrbitCircles(ctx: CanvasRenderingContext2D, cx: number, cy: number,
 function drawHorizonLines(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]): void {
 	const n = 5;
 	for (let i = 0; i < n; i++) {
-		const y = cy - r * 0.5 + i * (r / (n - 1));
-		const width = r * (0.4 + jitter[i] * 0.6);
+		const y = cy - r * 0.55 + i * ((r * 1.1) / (n - 1));
+		const width = r * (1.3 + jitter[i] * 0.7);
 		ctx.beginPath();
 		ctx.moveTo(cx - width / 2, y);
 		ctx.lineTo(cx + width / 2, y);
@@ -193,7 +199,7 @@ function drawHorizonLines(ctx: CanvasRenderingContext2D, cx: number, cy: number,
 function drawConcentricFrames(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, jitter: number[]): void {
 	const n = 3;
 	for (let i = 0; i < n; i++) {
-		const rr = r * (1 - i * 0.26) * (0.92 + jitter[i] * 0.16);
+		const rr = r * (1 - i * 0.24) * (1.0 + jitter[i] * 0.14);
 		const radius = rr * 0.18;
 		ctx.beginPath();
 		ctx.roundRect(cx - rr, cy - rr * 0.72, rr * 2, rr * 1.44, radius);
@@ -254,8 +260,9 @@ function toRomanish(n: number): string {
 }
 
 // ============================================================
-// Cover — cloth ground + noise grain, motif in foil at low alpha upper
-// third, wrapped title, small-caps author, double foil rule. The foil
+// Cover — cloth ground + noise grain, motif as a hero composition (60–70%
+// of canvas width, centered ~38% height), double foil rule, wrapped title
+// lower on the board (~72% height), small-caps author (~86%). The foil
 // (alpha) canvas re-strokes only the motif + title in white on black so it
 // can drive an alphaMap/bumpMap pair on the rig's separate foil plane.
 // ============================================================
@@ -277,8 +284,11 @@ function paintCoverLayer(
 		ctx.fillRect(0, 0, w, h);
 	}
 
-	const motifStroke = mode === 'color' ? withAlpha(identity.palette.foil, 0.35) : '#ffffff';
-	drawMotif(ctx, identity.motifIndex, w / 2, h * 0.18, Math.min(w, h) * 0.16, motifJitter, motifStroke, Math.max(1.5, w * 0.004));
+	// Motif is the hero: ~0.31·w radius (most motifs' natural footprint is
+	// ~1.9–2.4× that, landing the overall composition around 60–70% of the
+	// canvas width), bold stroke weight (~2% of width), strong foil alpha.
+	const motifStroke = mode === 'color' ? withAlpha(identity.palette.foil, 0.85) : '#ffffff';
+	drawMotif(ctx, identity.motifIndex, w / 2, h * 0.38, w * 0.31, motifJitter, motifStroke, Math.max(2, w * 0.02));
 
 	ctx.textAlign = 'center';
 	ctx.textBaseline = 'middle';
@@ -286,7 +296,7 @@ function paintCoverLayer(
 	ctx.font = `${Math.round(h * 0.052)}px ${SERIF_STACK}`;
 	const lines = wrapText(ctx, identity.title, w * 0.78, 3);
 	const lineHeight = h * 0.06;
-	const startY = h * 0.44 - ((lines.length - 1) * lineHeight) / 2;
+	const startY = h * 0.72 - ((lines.length - 1) * lineHeight) / 2;
 	lines.forEach((line, i) => ctx.fillText(line, w / 2, startY + i * lineHeight));
 
 	if (mode === 'color') {
@@ -306,7 +316,7 @@ function paintCoverLayer(
 			ctx.font = `small-caps ${Math.round(h * 0.028)}px ${SERIF_STACK}`;
 			ctx.fillStyle = identity.palette.ink;
 			const author = truncateToWidth(ctx, identity.author, w * 0.8);
-			ctx.fillText(author, w / 2, h * 0.7);
+			ctx.fillText(author, w / 2, h * 0.86);
 		}
 	}
 }
@@ -350,7 +360,22 @@ function paintSpineLayer(
 	// positions title vs. author along the spine. The y argument maps to the
 	// global X axis (spine width) and stays 0 to keep both lines centered
 	// across the spine's thin face.
+	//
+	// The available run length for the title is the canvas HEIGHT (the long
+	// axis text is fitted against post-rotation) minus the top/bottom rule
+	// margins and the numeral-badge zone — not the canvas width, which is
+	// what caused "Midnight Compile" to truncate to "Midnight C…". Font size
+	// shrinks toward a floor before any character is dropped.
 	const centerY = h / 2;
+	const topLimit = h * 0.06 + h * 0.05; // clears the top rule
+	const badgeReserved = identity.seriesIndex != null;
+	const bottomLimit = badgeReserved ? h * 0.74 : h * 0.94 - h * 0.02; // clears the badge or bottom rule
+	const contentSpan = Math.max(bottomLimit - topLimit, h * 0.1);
+	const authorSpan = identity.author ? contentSpan * 0.24 : 0;
+	const titleSpan = contentSpan - authorSpan;
+	const titleCenterY = topLimit + titleSpan / 2;
+	const authorCenterY = topLimit + titleSpan + authorSpan / 2;
+
 	ctx.save();
 	ctx.translate(w / 2, centerY);
 	ctx.rotate(Math.PI / 2);
@@ -358,31 +383,40 @@ function paintSpineLayer(
 	ctx.textBaseline = 'middle';
 	ctx.fillStyle = mode === 'color' ? identity.palette.ink : '#ffffff';
 
-	const titleFontSize = Math.round(h * 0.045);
+	const titleBaseFontSize = Math.round(h * 0.045);
+	const titleMinFontSize = Math.max(Math.round(titleBaseFontSize * 0.6), 8);
+	let titleFontSize = titleBaseFontSize;
 	ctx.font = `${titleFontSize}px ${SERIF_STACK}`;
 	let title = truncateLabel(identity.title, 40);
-	const titleMaxRun = identity.author ? h * 0.3 : h * 0.5;
-	while (ctx.measureText(title).width > titleMaxRun && title.length > 3) {
+	while (ctx.measureText(title).width > titleSpan && titleFontSize > titleMinFontSize) {
+		titleFontSize -= 1;
+		ctx.font = `${titleFontSize}px ${SERIF_STACK}`;
+	}
+	while (ctx.measureText(title).width > titleSpan && title.length > 3) {
 		title = `${title.slice(0, -2)}…`;
 	}
-	const titleCenterFrac = identity.author ? 0.34 : 0.5;
-	ctx.fillText(title, titleCenterFrac * h - centerY, 0);
+	ctx.fillText(title, titleCenterY - centerY, 0);
 
 	// Author surname is part of the readable (color) face only — the foil
-	// duplicate is scoped to rules + title per §5.2. `identity.author` still
-	// gates the title's reserved position/budget above so both canvases keep
-	// identical title placement (the foil plane overlays the color spine).
+	// duplicate is scoped to rules + title per §5.2. The title's reserved
+	// position/budget above stays unconditional on `mode` so both canvases
+	// keep identical title placement (the foil plane overlays the color spine).
 	if (identity.author && mode === 'color') {
-		const surnameFontSize = Math.round(h * 0.026);
+		const surnameBaseFontSize = Math.round(h * 0.026);
+		const surnameMinFontSize = Math.max(Math.round(surnameBaseFontSize * 0.6), 7);
+		let surnameFontSize = surnameBaseFontSize;
 		ctx.font = `${surnameFontSize}px ${SERIF_STACK}`;
 		ctx.fillStyle = identity.palette.foil;
 		const surname = identity.author.trim().split(/\s+/).pop() ?? identity.author;
 		let surnameLabel = surname;
-		const authorMaxRun = h * 0.2;
-		while (ctx.measureText(surnameLabel).width > authorMaxRun && surnameLabel.length > 3) {
+		while (ctx.measureText(surnameLabel).width > authorSpan && surnameFontSize > surnameMinFontSize) {
+			surnameFontSize -= 1;
+			ctx.font = `${surnameFontSize}px ${SERIF_STACK}`;
+		}
+		while (ctx.measureText(surnameLabel).width > authorSpan && surnameLabel.length > 3) {
 			surnameLabel = `${surnameLabel.slice(0, -2)}…`;
 		}
-		ctx.fillText(surnameLabel, 0.62 * h - centerY, 0);
+		ctx.fillText(surnameLabel, authorCenterY - centerY, 0);
 	}
 	ctx.restore();
 
