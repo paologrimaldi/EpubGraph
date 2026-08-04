@@ -827,9 +827,9 @@ export interface Experience {
 	dispose(): void;
 }
 export function createExperience(container: HTMLElement): Experience;
-// camera: fov 32, near 0.1, far 60; shelf cam pos (0,1.9,6.1) target (0,1.25,0)
-// (retuned at the Task 5 visual checkpoint — the original (0,1.72,4.6)/(0,1.32,0)
-// framed the shelf furniture as full-width bands and clipped the book fade band)
+// camera: fov 32, near 0.1, far 60; shelf cam pos (0,1.45,6.1) target (0,1.15,0)
+// (retuned twice at the Task 5 visual checkpoint — near-level with the shelf;
+// the original (0,1.72,4.6)/(0,1.32,0) framed the furniture as full-width bands)
 export const SHELF_CAMERA_POSITION: [number, number, number]; // exported for inspect.ts
 export const SHELF_CAMERA_TARGET: [number, number, number];
 export const SHELF_TOP = 0.47;              // walnut board top Y — carousel ground truth
