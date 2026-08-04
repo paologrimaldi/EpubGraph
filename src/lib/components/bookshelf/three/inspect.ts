@@ -20,6 +20,7 @@ import {
 	shouldCommitTurn,
 	nextSpread,
 	canClaimPageDrag,
+	canClaimAnyGesture,
 	LEAF_TURNED_ANGLE,
 	type CoverDrag,
 	type FlexState
@@ -52,7 +53,15 @@ export interface InspectController {
 	setReadingOpen(open: boolean): void;
 	handleCoverPointerDown(event: PointerEvent): boolean; // true if claimed (started a cover drag)
 	handleCoverPointerMove(event: PointerEvent): void;
-	handleCoverPointerUp(event: PointerEvent): void;
+	// Final review fix (Critical 1): returns whether THIS pointerId's release
+	// resolved a claimed cover drag (toggle or commit/spring-back) — false if
+	// nothing was claimed. Library3D.svelte uses this to suppress the native
+	// `click` that immediately follows: without it, releasing a click-to-
+	// toggle on the open cover's free edge (which can sit well outside the
+	// rig's `hit` box — see raycastBook's doc in Library3D.svelte) reads as a
+	// miss on the click-empty-to-close raycast and closes the whole inspect
+	// view a frame after the cover/page gesture already resolved it.
+	handleCoverPointerUp(event: PointerEvent): boolean;
 	// Code-review fix (Task 12 findings, Important 1): the browser can abort
 	// an in-flight cover drag out from under us (touch takeover, palm
 	// rejection, OS-level gesture cancel) — pointerup, the only other place
@@ -81,8 +90,19 @@ export interface InspectController {
 	turnPage(direction: 1 | -1): void; // programmatic HUD prev/next — eases like a drag, then commits
 	handlePagePointerDown(event: PointerEvent): boolean; // true if claimed (started a page drag)
 	handlePagePointerMove(event: PointerEvent): void;
-	handlePagePointerUp(event: PointerEvent): void;
+	// Final review fix (Critical 1): mirrors handleCoverPointerUp's return —
+	// true iff THIS pointerId's release resolved a claimed page drag
+	// (commit or spring-back). Same click-suppression purpose as the cover
+	// one, for a click landing on a turned leaf's free edge.
+	handlePagePointerUp(event: PointerEvent): boolean;
 	handlePagePointerCancel(event: PointerEvent): void;
+	// Final review fix (Important 3): recomputes and reapplies the inspect
+	// scale (and, mid-transition, the eased endpoint it's lerping toward) —
+	// call from Library3D.svelte's handleResize, AFTER experience.resize()
+	// has already refreshed camera.aspect, whenever the container resizes
+	// while a book is open/opening/closing/inspecting. No-op with no
+	// activeRig (i.e. in 'shelf' mode, nothing to resize).
+	onResize(): void;
 }
 
 // Task 14 placeholder spread count/labels — Task 15 wires real per-book
@@ -851,6 +871,25 @@ export function createInspect(deps: {
 		internals._scale = 1;
 	}
 
+	/**
+	 * Final review fix (Important 1): the flip side of `canClaimAnyGesture` —
+	 * called from every cover/page pointerup/pointercancel handler instead of
+	 * the old unconditional `controls.enabled = machine.mode === 'inspect'`.
+	 * With the mutual-exclusion guard now refusing a second gesture claim
+	 * while either pointerId is live, at most one of coverPointerId/
+	 * pagePointerId is ever non-null at a time in practice — but reading both
+	 * here rather than assuming that invariant holds is the same belt-and-
+	 * suspenders discipline this file already applies everywhere else (see
+	 * pinShelfCameraAim's doc comment): controls only ever re-enable once
+	 * NEITHER gesture still owns a pointer, so a handler that runs before its
+	 * sibling clears its own pointerId (impossible today, but not something
+	 * this function should have to assume) can't prematurely hand orbit
+	 * control back mid-gesture.
+	 */
+	function refreshControlsEnabled(): void {
+		controls.enabled = machine.mode === 'inspect' && coverPointerId === null && pagePointerId === null;
+	}
+
 	function finishOpening(): void {
 		const rig = activeRig;
 		if (!rig) return;
@@ -1297,6 +1336,12 @@ export function createInspect(deps: {
 	 * checking it.
 	 */
 	function handleCoverPointerDown(event: PointerEvent): boolean {
+		// Final review fix (Important 1): refuse the claim while EITHER
+		// gesture already owns a pointer — see canClaimAnyGesture's doc
+		// comment for the exact orphaned-drag/concurrent-drag bugs this
+		// prevents. Checked before the raycast (cheaper, and there's no
+		// reason to raycast a claim that's going to be refused anyway).
+		if (!canClaimAnyGesture(coverPointerId, pagePointerId)) return false;
 		if (!raycastCoverHit(event)) return false;
 		coverPointerId = event.pointerId;
 		coverDragStartClientX = event.clientX;
@@ -1343,8 +1388,8 @@ export function createInspect(deps: {
 	 * otherwise — both routed through setReadingOpen so the announcement and
 	 * the eased settle behave identically to the HUD toggle.
 	 */
-	function handleCoverPointerUp(event: PointerEvent): void {
-		if (coverPointerId === null || event.pointerId !== coverPointerId) return;
+	function handleCoverPointerUp(event: PointerEvent): boolean {
+		if (coverPointerId === null || event.pointerId !== coverPointerId) return false;
 		const traveled = coverDragTraveled;
 		const finalProgress = coverDrag.progress;
 		const kind = coverDragKindAtStart;
@@ -1356,7 +1401,7 @@ export function createInspect(deps: {
 		coverPointerId = null;
 		coverDragKindAtStart = null;
 		coverDrag = { active: false, kind: null, progress: 0 };
-		controls.enabled = machine.mode === 'inspect';
+		refreshControlsEnabled();
 
 		if (!traveled) {
 			setReadingOpen(!readingOpen);
@@ -1366,6 +1411,7 @@ export function createInspect(deps: {
 			setReadingOpen(finalProgress <= 0.5);
 		}
 		experience.requestFrame();
+		return true;
 	}
 
 	/**
@@ -1395,7 +1441,7 @@ export function createInspect(deps: {
 		coverPointerId = null;
 		coverDragKindAtStart = null;
 		coverDrag = { active: false, kind: null, progress: 0 };
-		controls.enabled = machine.mode === 'inspect';
+		refreshControlsEnabled();
 		experience.requestFrame();
 	}
 
@@ -1416,6 +1462,12 @@ export function createInspect(deps: {
 	 */
 	function handlePagePointerDown(event: PointerEvent): boolean {
 		if (!activeRig || !readingOpen || machine.mode !== 'inspect' || phase !== 'idle') return false;
+		// Final review fix (Important 1): refuse the claim while a cover-drag
+		// already owns a pointer — canClaimPageDrag alone only arbitrates
+		// against programmaticTurn, not against the OTHER pointer-driven
+		// gesture. See canClaimAnyGesture's doc comment for the concurrent-
+		// drag corruption this prevents.
+		if (!canClaimAnyGesture(coverPointerId, pagePointerId)) return false;
 		if (!canClaimPageDrag(pagePointerId, programmaticTurn !== null)) return false;
 		if (!raycastPageHit(event)) return false;
 		pagePointerId = event.pointerId;
@@ -1505,8 +1557,8 @@ export function createInspect(deps: {
 	 * on a spring-back (so it eases back to where it started). No dedicated
 	 * spring-back code path exists because none is needed.
 	 */
-	function handlePagePointerUp(event: PointerEvent): void {
-		if (pagePointerId === null || event.pointerId !== pagePointerId) return;
+	function handlePagePointerUp(event: PointerEvent): boolean {
+		if (pagePointerId === null || event.pointerId !== pagePointerId) return false;
 		try {
 			experience.renderer.domElement.releasePointerCapture(event.pointerId);
 		} catch {
@@ -1519,13 +1571,14 @@ export function createInspect(deps: {
 		pagePointerId = null;
 		pageDragDirection = null;
 		pageDragLeafIndex = -1;
-		controls.enabled = machine.mode === 'inspect';
+		refreshControlsEnabled();
 
 		if (leafIndex >= 0 && direction && shouldCommitTurn(progress, Math.abs(velocity))) {
 			currentSpread = nextSpread(currentSpread, direction, activeSpreadCount());
 			announce(activeSpreadLabels()[currentSpread] ?? '');
 		}
 		experience.requestFrame();
+		return true;
 	}
 
 	/**
@@ -1543,7 +1596,7 @@ export function createInspect(deps: {
 		pagePointerId = null;
 		pageDragDirection = null;
 		pageDragLeafIndex = -1;
-		controls.enabled = machine.mode === 'inspect';
+		refreshControlsEnabled();
 		experience.requestFrame();
 	}
 
@@ -1568,6 +1621,11 @@ export function createInspect(deps: {
 	 */
 	function turnPage(direction: 1 | -1): void {
 		if (!activeRig || !readingOpen || phase !== 'idle' || machine.mode !== 'inspect') return;
+		// Final review fix (Important 1): a programmatic turn is a page-drag
+		// claim in every sense but the pointer — refuse it the same way
+		// handlePagePointerDown does while a cover-drag is live (e.g. a HUD
+		// next-page click landing mid-touch-drag on the cover).
+		if (!canClaimAnyGesture(coverPointerId, pagePointerId)) return;
 		if (!canClaimPageDrag(pagePointerId, programmaticTurn !== null)) return;
 		const target = nextSpread(currentSpread, direction, activeSpreadCount());
 		if (target === currentSpread) return;
@@ -1589,6 +1647,40 @@ export function createInspect(deps: {
 		clearOrbitMomentum();
 		controls.reset();
 		experience.requestFrame();
+	}
+
+	/**
+	 * Final review fix (Important 3): `computeInspectScale` (used by open()
+	 * to size the book once, at open time) reads live `camera.aspect` and
+	 * `experience.renderer.domElement.clientWidth` — both of which change on
+	 * a container resize, but nothing previously ever revisited the scale
+	 * afterward, leaving a book wrongly sized (relative to the new viewport)
+	 * for the rest of the inspect session. Library3D.svelte calls this from
+	 * its own handleResize, right after `experience.resize()` has already
+	 * refreshed `camera.aspect` — see `applySize()`/`resize()` in
+	 * experience.ts — so the recomputation below always sees fresh values.
+	 *
+	 * No-op with no `activeRig` (mode 'shelf' — nothing to resize).
+	 *
+	 * 'opening'/'closing': a live transition already lerps `root.scale` every
+	 * frame from `startBookPose.scale` toward `endBookPose.scale`
+	 * (applyBookPose, via `update()`) — snapping `root` directly here would
+	 * fight that per-frame lerp and pop. Instead, just correct the captured
+	 * `endBookPose.scale` endpoint so the transition's own lerp naturally
+	 * arrives at the right value on its very next frame.
+	 *
+	 * 'idle' / 'settling-cover': the book's pose is otherwise static —
+	 * `update()` never touches `root.scale` in either phase — so the new
+	 * scale is applied directly.
+	 */
+	function onResize(): void {
+		if (!activeRig) return;
+		const scale = computeInspectScale(activeRig);
+		if (phase === 'opening' || phase === 'closing') {
+			endBookPose = { ...endBookPose, scale };
+		} else {
+			activeRig.root.scale.setScalar(scale);
+		}
 	}
 
 	return {
@@ -1619,6 +1711,7 @@ export function createInspect(deps: {
 		handlePagePointerDown,
 		handlePagePointerMove,
 		handlePagePointerUp,
-		handlePagePointerCancel
+		handlePagePointerCancel,
+		onResize
 	};
 }

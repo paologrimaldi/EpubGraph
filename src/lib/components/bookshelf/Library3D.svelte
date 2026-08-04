@@ -131,6 +131,20 @@
 	let pointerDownClient: { x: number; y: number } | null = null;
 	const CLICK_DRAG_THRESHOLD_PX = 6;
 
+	// Final review fix (Critical 1): set true when handlePointerUp's forward
+	// to InspectController's handleCoverPointerUp/handlePagePointerUp
+	// reports it resolved a claimed cover/page gesture (click-toggle or
+	// drag commit/spring-back) for THIS pointer. The native `click` that the
+	// browser fires immediately after that same pointerup reads it (and
+	// resets it) in handleClick — without this, a click-to-toggle landing on
+	// the open cover's free edge (which reaches well outside the rig's `hit`
+	// box, see raycastBook's doc below) both toggled the cover AND, because
+	// the plain box-raycast missed, closed the whole inspect view a frame
+	// later. Reset at the start of every pointerdown (a fresh gesture) so a
+	// stale `true` from a gesture whose click never fires (e.g. an aborted
+	// touch) can't leak into an unrelated later click.
+	let pointerUpConsumedGesture = false;
+
 	// Task 9 review Finding 3: the sidebar's own Close button nulls
 	// `selectedBookId` externally. If that happens while a book is still
 	// mid-'opening' (not yet 'inspect'), the reactive guard below used to
@@ -418,6 +432,12 @@
 	function handleResize(): void {
 		if (!experience) return;
 		experience.resize();
+		// Final review fix (Important 3): experience.resize() (just above)
+		// already refreshed camera.aspect — InspectController.onResize()
+		// reads that live value (plus the renderer's current clientWidth) to
+		// recompute the inspect scale, which open() otherwise only ever
+		// computes once. A no-op while mode is 'shelf' (no activeRig).
+		inspect?.onResize();
 		experience.requestFrame();
 	}
 
@@ -485,6 +505,33 @@
 		return book ? { book, index } : null;
 	}
 
+	// Final review fix (Critical 1): raycastBook's `hit` mesh is a fixed
+	// BoxGeometry sized ~±0.67·w in x (bookRig.ts's Step 7) — sized for the
+	// CLOSED book's shelf silhouette. It does not grow when the front cover
+	// swings open (its free edge reaches x ≈ −1.48·w — most of it sits
+	// outside the box) or when a leaf turns, so a click landing on open
+	// cover/page geometry that the box-raycast misses used to read as an
+	// "empty canvas" click and close inspect out from under the book it just
+	// landed on. Belt-and-suspenders alongside pointerUpConsumedGesture
+	// (which suppresses the click that immediately follows a claimed
+	// gesture's release): this raycasts the active rig's actual open
+	// geometry directly — frontPivot's whole subtree (cover board, art,
+	// foil, endpaper, groove — recursive, since frontPivot is a Group) plus
+	// every page-leaf sheet — so ANY click landing on visibly-open geometry
+	// reads as "hit the book", even one with no prior claimed gesture behind
+	// it (e.g. a quick tap that never traveled far enough to register as a
+	// drag on either handler).
+	function raycastInspectGeometry(event: PointerEvent | MouseEvent): boolean {
+		if (!experience || !raycaster || !pointerVec || !inspect?.activeRig) return false;
+		const rig = inspect.activeRig;
+		const ndc = pointerToNdc(event);
+		pointerVec.set(ndc.x, ndc.y);
+		experience.camera.updateMatrixWorld();
+		raycaster.setFromCamera(pointerVec, experience.camera);
+		const targets: import('three').Object3D[] = [rig.frontPivot, ...rig.pageSurfaces];
+		return raycaster.intersectObjects(targets, true).length > 0;
+	}
+
 	// Mode-branched, not a plain `!== 'shelf'` guard like every other input
 	// (click/keydown/wheel): hover has a legitimate job in *both* shelf mode
 	// (drives Carousel.setHovered — the lift/tilt/crack-on-hover shelf feel)
@@ -537,6 +584,10 @@
 	// rotate the camera *and* close inspect.
 	function handlePointerDown(event: PointerEvent): void {
 		pointerDownClient = { x: event.clientX, y: event.clientY };
+		// Fresh gesture starting — drop any stale consumed-flag left over
+		// from a previous pointer whose native `click` never fired (see the
+		// flag's own doc comment above).
+		pointerUpConsumedGesture = false;
 		// Task 12 (§4.4): let InspectController's own raycast decide whether
 		// this pointerdown lands on the front cover and claim the drag if so
 		// (it owns controls.enabled/pointer-capture for the duration itself).
@@ -563,8 +614,16 @@
 	// pointerId, so forwarding both unconditionally is safe).
 	function handlePointerUp(event: PointerEvent): void {
 		if (modeMachine.mode !== 'inspect') return;
-		inspect?.handleCoverPointerUp(event);
-		inspect?.handlePagePointerUp(event);
+		// Final review fix (Critical 1): either forward reports (via its
+		// return value) whether it resolved a claimed gesture for THIS
+		// pointerId — latched so the native `click` event that follows this
+		// same pointerup (handleClick, below) knows not to treat itself as a
+		// click-on-empty-canvas. At most one of the two can ever be true (the
+		// two raycast different mesh sets and can't both claim the same
+		// pointerdown — see handlePointerDown's own doc comment).
+		const coverConsumed = inspect?.handleCoverPointerUp(event) ?? false;
+		const pageConsumed = inspect?.handlePagePointerUp(event) ?? false;
+		if (coverConsumed || pageConsumed) pointerUpConsumedGesture = true;
 		experience?.requestFrame();
 	}
 
@@ -594,14 +653,25 @@
 	function handleClick(event: MouseEvent): void {
 		if (!carousel) return;
 		const dragged = clickTraveledPastThreshold(event);
+		// Final review fix (Critical 1): read-then-reset — this click either
+		// belongs to the gesture that just set the flag (consume it now) or
+		// it's an unrelated later click (must not inherit a stale `true`).
+		const consumedGesture = pointerUpConsumedGesture;
+		pointerUpConsumedGesture = false;
 		pointerDownClient = null;
 		if (modeMachine.mode === 'inspect') {
 			// Click on the book itself: no-op (still inspecting). Click on empty
 			// canvas: close — but only for a genuine click, not an orbit-drag
 			// release (see handlePointerDown's doc above); orbit and
-			// click-empty-to-close must coexist.
-			if (dragged) return;
-			if (!raycastBook(event)) closeInspect();
+			// click-empty-to-close must coexist. Nor for a click that just
+			// resolved a claimed cover/page gesture (consumedGesture — Critical
+			// 1) or one landing on the active rig's open-geometry that the
+			// plain `hit`-box raycast misses (raycastInspectGeometry — same
+			// finding, belt-and-suspenders): both would otherwise read as an
+			// empty-canvas miss and close inspect out from under the book the
+			// click actually landed on.
+			if (dragged || consumedGesture) return;
+			if (!raycastBook(event) && !raycastInspectGeometry(event)) closeInspect();
 			return;
 		}
 		if (modeMachine.mode !== 'shelf') return; // opening/closing: inert

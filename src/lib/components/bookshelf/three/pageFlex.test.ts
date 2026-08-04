@@ -9,6 +9,7 @@ import {
 	shouldCommitTurn,
 	nextSpread,
 	canClaimPageDrag,
+	canClaimAnyGesture,
 	type FlexState
 } from './pageFlex';
 
@@ -199,5 +200,55 @@ describe('canClaimPageDrag (Task 14 review fix: mutual exclusion with programmat
 
 		// Only *after* programmaticTurn clears can a fresh drag claim succeed.
 		expect(canClaimPageDrag(pagePointerId, programmaticTurnActive)).toBe(true);
+	});
+});
+
+describe('canClaimAnyGesture (final review fix, Important 1: cover/page mutual exclusion)', () => {
+	it('allows a claim when both gestures are idle', () => {
+		expect(canClaimAnyGesture(null, null)).toBe(true);
+	});
+
+	it('refuses a new claim while a cover-drag already owns a pointer', () => {
+		expect(canClaimAnyGesture(3, null)).toBe(false);
+	});
+
+	it('refuses a new claim while a page-drag already owns a pointer', () => {
+		expect(canClaimAnyGesture(null, 5)).toBe(false);
+	});
+
+	it('refuses when both somehow own a pointer at once', () => {
+		expect(canClaimAnyGesture(3, 5)).toBe(false);
+	});
+
+	it('regression: a second pointerdown on the cover mid-drag must not be allowed to overwrite the first drag\'s pointerId', () => {
+		// Pointer A starts a cover drag — inspect.ts's handleCoverPointerDown
+		// checks this exact guard before raycasting, then claims the pointer.
+		let coverPointerId: number | null = null;
+		const pagePointerId: number | null = null;
+		expect(canClaimAnyGesture(coverPointerId, pagePointerId)).toBe(true);
+		coverPointerId = 1; // pointer A claims the cover drag
+
+		// Pointer B lands on the cover a second time while A's drag is still
+		// live. Pre-fix, handleCoverPointerDown had no such guard and would
+		// have raycast-hit-tested and overwritten coverPointerId with B's id,
+		// orphaning A's drag (its future move/up events stop matching).
+		const claimedByB = canClaimAnyGesture(coverPointerId, pagePointerId);
+		expect(claimedByB).toBe(false);
+		if (claimedByB) coverPointerId = 2; // must not run
+		expect(coverPointerId).toBe(1); // A's drag is still the sole owner
+	});
+
+	it('regression: a page-drag pointerdown must not be able to claim a second pointer while a cover-drag is live', () => {
+		const coverPointerId = 1; // cover drag already claimed by pointer A
+		let pagePointerId: number | null = null;
+
+		// Pointer B lands on a page while A's cover drag is in flight.
+		// Pre-fix, handlePagePointerDown only checked pagePointerId (still
+		// null here) via canClaimPageDrag, so it would have wrongly claimed
+		// B, running a page-drag and a cover-drag concurrently.
+		const claimedByB = canClaimAnyGesture(coverPointerId, pagePointerId);
+		expect(claimedByB).toBe(false);
+		if (claimedByB) pagePointerId = 2; // must not run
+		expect(pagePointerId).toBe(null);
 	});
 });

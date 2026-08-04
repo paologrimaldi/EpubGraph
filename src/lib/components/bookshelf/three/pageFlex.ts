@@ -229,3 +229,28 @@ export function nextSpread(current: number, direction: 1 | -1, spreadCount: numb
 export function canClaimPageDrag(pagePointerId: number | null, programmaticTurnActive: boolean): boolean {
 	return pagePointerId === null && !programmaticTurnActive;
 }
+
+/**
+ * Final-review fix (Important 1): mutual exclusion between the cover-drag and
+ * page-drag gestures themselves — distinct from `canClaimPageDrag` above,
+ * which only arbitrates a page claim against `programmaticTurn`. Without
+ * this, two live pointers could corrupt inspect.ts's gesture state two ways:
+ * (a) a second pointerdown landing on the cover while a cover-drag is already
+ * in flight would overwrite `coverPointerId`, orphaning the first drag (its
+ * future move/up events stop matching and it never resolves — OrbitControls
+ * then stays disabled forever, since nothing else ever clears that pointer);
+ * (b) a second pointer could claim a page-drag while a cover-drag is live on
+ * the first, letting both gestures drive frontPivot/pagePivot transforms in
+ * the same frame. `coverPointerId`/`pagePointerId` are the two gestures'
+ * currently-claimed pointerIds (null when idle) — a NEW claim of either kind
+ * (cover-drag pointerdown, page-drag pointerdown, or a programmatic
+ * `turnPage()` HUD click, which is a page-drag claim in every sense but the
+ * pointer) is refused unless BOTH are null, i.e. the whole gesture surface is
+ * completely idle. inspect.ts calls this from all three claim sites; the
+ * *release* sites (pointerup/pointercancel for either gesture) instead only
+ * re-enable OrbitControls once both are null again (see inspect.ts's
+ * `refreshControlsEnabled`), the flip side of the same invariant.
+ */
+export function canClaimAnyGesture(coverPointerId: number | null, pagePointerId: number | null): boolean {
+	return coverPointerId === null && pagePointerId === null;
+}
