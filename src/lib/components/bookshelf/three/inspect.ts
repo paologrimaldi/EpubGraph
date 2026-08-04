@@ -6,7 +6,7 @@ import { SHELF_CAMERA_POSITION, SHELF_CAMERA_TARGET, SHELF_TOP } from './experie
 import type { Carousel } from './carousel';
 import type { RigHandle } from './bookRig';
 import type { ModeMachine } from './state';
-import { smootherstep, shelfPose, damp } from './carouselMath';
+import { smootherstep, smoothstep, shelfPose, damp } from './carouselMath';
 import { capturePose, lerpPose, inspectScale, type PoseTargets } from './inspectMath';
 import {
 	coverOpenAmount,
@@ -15,6 +15,9 @@ import {
 	stepFlex,
 	deformSheet,
 	leafTargets,
+	shouldCommitTurn,
+	nextSpread,
+	LEAF_TURNED_ANGLE,
 	type CoverDrag,
 	type FlexState
 } from './pageFlex';
@@ -55,7 +58,32 @@ export interface InspectController {
 	// rest of the inspect session. Library3D.svelte routes both the
 	// `pointercancel` and `lostpointercapture` DOM events here.
 	handleCoverPointerCancel(event: PointerEvent): void;
+	// Task 14 (§4.4): page-turn gestures + commit rules. `currentSpread` is
+	// how many leaves (from the spine) are already turned — mirrors
+	// `readingOpen` for the HUD (prev/next disabled states, live-region
+	// spread label) via the same per-frame sync pattern Library3D.svelte
+	// already uses for `readingOpen`. The four pointer handlers mirror the
+	// cover-drag ones exactly (raycast ownership against `pageSurfaces`
+	// instead of `frontPivot`, px→progress, OrbitControls suppression,
+	// pointercancel recovery) — only claimed while the book is open and idle
+	// (`readingOpen && phase === 'idle'`).
+	readonly currentSpread: number;
+	turnPage(direction: 1 | -1): void; // programmatic HUD prev/next — eases like a drag, then commits
+	handlePagePointerDown(event: PointerEvent): boolean; // true if claimed (started a page drag)
+	handlePagePointerMove(event: PointerEvent): void;
+	handlePagePointerUp(event: PointerEvent): void;
+	handlePagePointerCancel(event: PointerEvent): void;
 }
+
+// Task 14 (§4.4): placeholder spread count/labels — real per-book content
+// (title/about/colophon) arrives in Task 15; until then every inspected book
+// has the same 4 fixed "spreads" a page-turn can land on. `SPREAD_COUNT` is
+// exported so Library3D.svelte can compute the HUD next-button's disabled
+// state (`currentSpread >= SPREAD_COUNT - 1`) without duplicating the
+// number, and so `nextSpread`'s clamp and this file's own bounds checks stay
+// governed by one constant.
+export const SPREAD_COUNT = 4;
+const SPREAD_LABELS = ['Cover', 'Title page', 'About', 'Details'];
 
 // Inspect pose constants — the design brief's original numbers ([0,1.5,3.1]
 // camera / [0,1.45,0] book) were tuned for an older, higher shelf camera.
@@ -128,6 +156,20 @@ const FLEX_TOP_LEAF_COUNT = 2;
 // instantly-toggled openAmount) so this stays true for the whole ~1s
 // COVER_OPEN_LAMBDA settle window instead of firing for one frame only.
 const FLEX_ANGLE_RATE_EPS = 0.00005;
+
+// Task 14 (§4.4): page-drag gesture tuning. Brief-specified: "curve ∝
+// clamp(velocity·0.4, −0.5, 0.5), twist small ∝ vertical drag component" —
+// the curve scale/clamp are the brief's literal numbers; the twist scale/
+// clamp aren't pinned down beyond "small", so they're tuned to read as a
+// visible-but-subtle cloth-twist alongside the ±0.5 curve range (same
+// "design decision not fully pinned down by the brief" category Task 13's
+// report flagged for its own twist-centering choice).
+const PAGE_DRAG_CURVE_VELOCITY_SCALE = 0.4;
+const PAGE_DRAG_CURVE_CLAMP = 0.5;
+const PAGE_DRAG_TWIST_SCALE = 0.3;
+const PAGE_DRAG_TWIST_CLAMP = 0.15;
+// Programmatic HUD prev/next turn duration — brief-specified "~0.45s".
+const PAGE_TURN_DURATION = 0.45;
 
 const IDENTITY_POSE: Pose = { position: [0, 0, 0], quaternion: [0, 0, 0, 1], scale: 1 };
 
@@ -238,6 +280,34 @@ export function createInspect(deps: {
 	const coverPointerNdc = new THREE.Vector2();
 	const scratchBookWorldPos = new THREE.Vector3();
 
+	// Task 14 (§4.4): page-turn drag pointer tracking — mirrors the cover-drag
+	// bookkeeping above exactly (single claimed pointerId, start client
+	// coords, a traveled flag for the click-vs-drag threshold), plus the
+	// per-move velocity bookkeeping a cover drag doesn't need (page-drag flex
+	// curve is driven by instantaneous drag speed, §4.4). `pageDragDirection`/
+	// `pageDragLeafIndex` start unresolved (`null`/`-1`) at pointerdown —
+	// §4.4's "direction from initial drag direction" means the gesture only
+	// decides which leaf it owns (and which way) once the drag has traveled
+	// past the click threshold, not at raycast time (raycasting any
+	// `pageSurfaces` mesh just claims pointer ownership).
+	let pagePointerId: number | null = null;
+	let pageDragStartClientX = 0;
+	let pageDragStartClientY = 0;
+	let pageDragTraveled = false;
+	let pageDragDirection: 1 | -1 | null = null;
+	let pageDragLeafIndex = -1;
+	let pageDragProgress = 0;
+	let pageDragVelocity = 0; // progress/second, signed (matches direction of travel)
+	let pageDragVerticalComponent = 0; // (clientY delta / book width), feeds the flex twist target
+	let pageDragLastProgress = 0;
+	let pageDragLastTimeMs = 0;
+	// Programmatic HUD prev/next turn (turnPage()) — mirrors a live page-drag's
+	// "active leaf follows a [0,1] progress" shape so both paths can share one
+	// per-frame leaf-override block in updateCoverPivot, just fed by an eased
+	// timer instead of the pointer. `null` when no programmatic turn is
+	// in-flight.
+	let programmaticTurn: { direction: 1 | -1; leafIndex: number; time: number } | null = null;
+
 	// inspect.ts is the sole owner of camera orientation outside shelf mode
 	// (shelf browsing never moves the camera) — this tracks "wherever the
 	// camera is currently looking" across both transitions.
@@ -330,6 +400,25 @@ export function createInspect(deps: {
 		return coverRaycaster.intersectObject(activeRig.frontPivot, true).length > 0;
 	}
 
+	/** Whether `event` lands on any of the active rig's 12 page-leaf sheets —
+	 * the raycast that decides page-drag ownership on pointerdown (Task 14,
+	 * §4.4). Only claimed while the book is open and idle
+	 * (`readingOpen && phase === 'idle'`, checked by the caller); which
+	 * specific leaf/side was hit doesn't matter here — §4.4's "direction from
+	 * initial drag direction" means the actual leaf + forward/backward
+	 * decision happens later, in handlePagePointerMove, once the drag has
+	 * traveled past the click threshold. Reuses `coverRaycaster`/
+	 * `coverPointerNdc` (sequential per-call scratch objects, same as
+	 * raycastCoverHit — never concurrent within a single handler). */
+	function raycastPageHit(event: PointerEvent): boolean {
+		if (!activeRig) return false;
+		const ndc = pointerToNdc(event);
+		coverPointerNdc.set(ndc.x, ndc.y);
+		camera.updateMatrixWorld();
+		coverRaycaster.setFromCamera(coverPointerNdc, camera);
+		return coverRaycaster.intersectObjects(activeRig.pageSurfaces, false).length > 0;
+	}
+
 	/** Approximate on-screen width (px) of `rig` at its *current* camera
 	 * distance — used to normalize cover-drag horizontal travel into a
 	 * [0,1] progress (§4.4: "px → progress normalized by the book's
@@ -355,13 +444,17 @@ export function createInspect(deps: {
 	 * of every mocked RigHandle in the test suite (carousel.test.ts,
 	 * coverPipeline.test.ts both use empty pagePivots/pageSurfaces arrays) —
 	 * this function is otherwise only exercised via a real bookRig.ts rig in
-	 * the browser. */
-	function applyLeafDeform(rig: RigHandle, i: number, curve: number, twist: number): void {
+	 * the browser. `direction` defaults to `1` (Task 13's only-ever-called
+	 * value, kept for every non-page-drag caller below); Task 14's page-drag
+	 * leaf override passes the drag's real forward/backward direction, which
+	 * `deformSheet` needs to curl the sheet toward the side it's actually
+	 * being pulled. */
+	function applyLeafDeform(rig: RigHandle, i: number, curve: number, twist: number, direction: 1 | -1 = 1): void {
 		const base = rig.pagePivots[i]?.userData.basePositions as Float32Array | undefined;
 		const sheet = rig.pageSurfaces[i * 2];
 		if (!base || !sheet) return;
 		const out = sheet.geometry.getAttribute('position') as THREE.BufferAttribute;
-		deformSheet(base, out, curve, twist, 1);
+		deformSheet(base, out, curve, twist, direction);
 		out.needsUpdate = true;
 		sheet.geometry.computeVertexNormals();
 	}
@@ -377,6 +470,31 @@ export function createInspect(deps: {
 		leafFlex = makeIdleLeafFlex();
 		leafDeformed.fill(false);
 		previousCoverAngleForFlex = 0;
+	}
+
+	/** Task 14: drops any in-flight page-drag/programmatic-turn *gesture*
+	 * bookkeeping — deliberately separate from resetLeafFlexState() (which
+	 * resets the *settled* currentSpread/leafAngles/leafFlex state) exactly
+	 * the way coverPointerId/coverDragKindAtStart are reset separately from
+	 * coverAngleCurrent/hoverCrackAngle elsewhere in this file: pointer/
+	 * gesture-in-flight state and settled/eased state are cleared at
+	 * different moments (close() cancels an in-flight drag immediately, but
+	 * only beginClosingTransition() — via resetLeafPivots — snaps the
+	 * settled leaf pose/currentSpread back to flat). Called from open(),
+	 * forceReset(), and close()'s own in-flight-drag cancellation. */
+	function resetPageDragState(): void {
+		pagePointerId = null;
+		pageDragStartClientX = 0;
+		pageDragStartClientY = 0;
+		pageDragTraveled = false;
+		pageDragDirection = null;
+		pageDragLeafIndex = -1;
+		pageDragProgress = 0;
+		pageDragVelocity = 0;
+		pageDragVerticalComponent = 0;
+		pageDragLastProgress = 0;
+		pageDragLastTimeMs = 0;
+		programmaticTurn = null;
 	}
 
 	/** Snaps every leaf pivot on `rig` to flat/rest (rotation.y 0,
@@ -452,16 +570,66 @@ export function createInspect(deps: {
 		previousCoverAngleForFlex = coverAngleCurrent;
 		const coverIsAnimating = !reduced && Math.abs(coverAngleDelta) > FLEX_ANGLE_RATE_EPS;
 
+		// Task 14 (§4.4): resolve this frame's "active page turn" — either a
+		// live user drag (pointer down, direction already decided by
+		// handlePagePointerMove) or a programmatic turnPage() ease. At most
+		// one can be active at a time (turnPage() refuses to start while
+		// pagePointerId is set, see turnPage() below), and neither exists
+		// under reduced motion (a live drag's follow is skipped entirely —
+		// see handlePagePointerMove's own `reduced` guard — and turnPage()
+		// commits reduced-motion turns instantly without ever setting
+		// programmaticTurn). `t` is the leaf's rest(0)→turned(1) blend
+		// factor for *this* frame — forward maps drag/ease progress 0→1 onto
+		// t 0→1 (rest→turned); backward mirrors it (progress 0→1 onto t 1→0,
+		// turned→rest), exactly matching leafTargets' own z/angle blend
+		// convention so the leaf hands off to the normal damp path
+		// seamlessly the instant this override clears (see below).
+		let turn: { leafIndex: number; direction: 1 | -1; t: number } | null = null;
+		if (!reduced && pagePointerId !== null && pageDragLeafIndex >= 0 && pageDragDirection) {
+			const t =
+				pageDragDirection === 1 ? smoothstep(pageDragProgress) : 1 - smoothstep(pageDragProgress);
+			turn = { leafIndex: pageDragLeafIndex, direction: pageDragDirection, t };
+		} else if (programmaticTurn) {
+			programmaticTurn.time += dt;
+			const p = Math.min(programmaticTurn.time / PAGE_TURN_DURATION, 1);
+			const t = programmaticTurn.direction === 1 ? smoothstep(p) : 1 - smoothstep(p);
+			turn = { leafIndex: programmaticTurn.leafIndex, direction: programmaticTurn.direction, t };
+			if (p >= 1) {
+				const direction = programmaticTurn.direction;
+				programmaticTurn = null;
+				currentSpread = nextSpread(currentSpread, direction, SPREAD_COUNT);
+				announce(SPREAD_LABELS[currentSpread] ?? '');
+			}
+			unsettled = true;
+		}
+
 		for (let i = 0; i < activeRig.pagePivots.length; i++) {
 			const pivot = activeRig.pagePivots[i];
-			const target = leafTargets(i, currentSpread, openAmount);
-			const targetZ = THREE.MathUtils.lerp(pivot.userData.restZ, pivot.userData.turnedZ, target.z);
+			const isActiveTurnLeaf = turn !== null && turn.leafIndex === i;
 
-			if (reduced) {
+			if (isActiveTurnLeaf && turn) {
+				// Live 1:1 follow — no damping, exactly mirroring how
+				// coverAngleCurrent tracks a live cover drag above. Never
+				// reverses direction mid-gesture: forward always eases 0→1,
+				// backward always 1→0, so a committed page (currentSpread
+				// already advanced by the time this override clears) can
+				// only ever keep moving the way it was already moving —
+				// §8 item 9's "a committed page never springs back".
+				const angle = LEAF_TURNED_ANGLE * turn.t;
+				leafAngles[i] = angle;
+				pivot.rotation.y = angle;
+				const targetZ = THREE.MathUtils.lerp(pivot.userData.restZ, pivot.userData.turnedZ, turn.t);
+				pivot.position.z = targetZ;
+				unsettled = true;
+			} else if (reduced) {
+				const target = leafTargets(i, currentSpread, openAmount);
+				const targetZ = THREE.MathUtils.lerp(pivot.userData.restZ, pivot.userData.turnedZ, target.z);
 				leafAngles[i] = target.angle;
 				pivot.rotation.y = target.angle;
 				pivot.position.z = targetZ;
 			} else {
+				const target = leafTargets(i, currentSpread, openAmount);
+				const targetZ = THREE.MathUtils.lerp(pivot.userData.restZ, pivot.userData.turnedZ, target.z);
 				if (Math.abs(leafAngles[i] - target.angle) < LEAF_ANGLE_EPS) {
 					leafAngles[i] = target.angle;
 				} else {
@@ -487,9 +655,33 @@ export function createInspect(deps: {
 				continue;
 			}
 
-			const isTopLeaf = i >= activeRig.pagePivots.length - FLEX_TOP_LEAF_COUNT;
-			const targetCurve = coverIsAnimating && isTopLeaf ? FLEX_GENTLE_CURVE : 0;
-			leafFlex[i] = stepFlex(leafFlex[i], targetCurve, 0, dt);
+			// Task 14: a leaf under a *live user drag* (not a programmatic
+			// turnPage() ease — the brief's velocity-driven curve is a drag-
+			// only detail) gets its flex spring driven by the drag's
+			// instantaneous speed/vertical component instead of Task 13's
+			// "cover is opening" gentle-curve stand-in.
+			const isDragLeaf = !reduced && pagePointerId !== null && pageDragLeafIndex === i;
+			let targetCurve: number;
+			let targetTwist: number;
+			let deformDirection: 1 | -1 = 1;
+			if (isDragLeaf) {
+				targetCurve = THREE.MathUtils.clamp(
+					pageDragVelocity * PAGE_DRAG_CURVE_VELOCITY_SCALE,
+					-PAGE_DRAG_CURVE_CLAMP,
+					PAGE_DRAG_CURVE_CLAMP
+				);
+				targetTwist = THREE.MathUtils.clamp(
+					pageDragVerticalComponent * PAGE_DRAG_TWIST_SCALE,
+					-PAGE_DRAG_TWIST_CLAMP,
+					PAGE_DRAG_TWIST_CLAMP
+				);
+				deformDirection = pageDragDirection ?? 1;
+			} else {
+				const isTopLeaf = i >= activeRig.pagePivots.length - FLEX_TOP_LEAF_COUNT;
+				targetCurve = coverIsAnimating && isTopLeaf ? FLEX_GENTLE_CURVE : 0;
+				targetTwist = 0;
+			}
+			leafFlex[i] = stepFlex(leafFlex[i], targetCurve, targetTwist, dt);
 			const flex = leafFlex[i];
 			const flexLive =
 				Math.abs(flex.curve) + Math.abs(flex.twist) > FLEX_SETTLE_EPS ||
@@ -497,7 +689,7 @@ export function createInspect(deps: {
 				Math.abs(flex.twistVelocity) > FLEX_SETTLE_EPS;
 
 			if (flexLive) {
-				applyLeafDeform(activeRig, i, flex.curve, flex.twist);
+				applyLeafDeform(activeRig, i, flex.curve, flex.twist, deformDirection);
 				unsettled = true;
 			}
 			leafDeformed[i] = flexLive;
@@ -718,6 +910,11 @@ export function createInspect(deps: {
 		coverPointerId = null;
 		coverDragKindAtStart = null;
 		settleTime = 0;
+		// Task 14: zeroes currentSpread + drops any in-flight page drag/
+		// programmatic turn — a rig that survives a forceReset() mid-turn
+		// can't carry a turned page back onto the shelf, mirroring the
+		// cover-open reset immediately above.
+		resetPageDragState();
 		if (rig) {
 			rig.frontPivot.rotation.y = 0;
 			resetLeafPivots(rig);
@@ -791,6 +988,10 @@ export function createInspect(deps: {
 		coverPointerId = null;
 		coverDragKindAtStart = null;
 		settleTime = 0;
+		// Task 14: a fresh open() also always starts at spread 0 with no
+		// drag/programmatic turn in flight, regardless of whatever the
+		// previously inspected book was left at.
+		resetPageDragState();
 		resetLeafPivots(rig);
 
 		machine.to('opening');
@@ -880,6 +1081,13 @@ export function createInspect(deps: {
 			coverDragKindAtStart = null;
 			coverDrag = { active: false, kind: null, progress: 0 };
 		}
+		// Task 14: cancel any in-flight page drag/programmatic turn the same
+		// way — never let it commit, just clear the override so the leaf's
+		// normal damp-toward-currentSpread path (already running below via
+		// updateCoverPivot) eases it back to whatever spread was last
+		// actually committed, as part of the same settle window the cover
+		// itself uses.
+		resetPageDragState();
 		const needsSettle = (readingOpen || Math.abs(coverAngleCurrent) > COVER_SETTLE_EPS) && !reducedMotion();
 		if (readingOpen) setReadingOpen(false);
 
@@ -1073,6 +1281,181 @@ export function createInspect(deps: {
 		experience.requestFrame();
 	}
 
+	/**
+	 * Task 14 (§4.4): pointerdown on the container while the book is open and
+	 * idle — raycasts `pageSurfaces` and, if hit, claims the drag (pointer
+	 * capture, OrbitControls disabled) the same way handleCoverPointerDown
+	 * claims a cover drag. Direction/leaf ownership aren't decided yet (see
+	 * handlePagePointerMove) — only the pointer is claimed here.
+	 */
+	function handlePagePointerDown(event: PointerEvent): boolean {
+		if (!activeRig || !readingOpen || machine.mode !== 'inspect' || phase !== 'idle') return false;
+		if (pagePointerId !== null) return false; // a page drag is already claimed
+		if (!raycastPageHit(event)) return false;
+		pagePointerId = event.pointerId;
+		pageDragStartClientX = event.clientX;
+		pageDragStartClientY = event.clientY;
+		pageDragTraveled = false;
+		pageDragDirection = null;
+		pageDragLeafIndex = -1;
+		pageDragProgress = 0;
+		pageDragVelocity = 0;
+		pageDragVerticalComponent = 0;
+		pageDragLastProgress = 0;
+		pageDragLastTimeMs = performance.now();
+		controls.enabled = false;
+		try {
+			experience.renderer.domElement.setPointerCapture(event.pointerId);
+		} catch {
+			// See handleCoverPointerDown's matching try/catch.
+		}
+		experience.requestFrame();
+		return true;
+	}
+
+	/**
+	 * Pointermove — a no-op unless `event.pointerId` matches whatever
+	 * handlePagePointerDown claimed. §4.4's "direction from initial drag
+	 * direction": the first move past the click threshold decides forward
+	 * (dragging left, mirrors the cover's own left=open convention) vs.
+	 * backward (dragging right), and which leaf that direction owns —
+	 * `currentSpread` for forward (the next unturned leaf), `currentSpread -
+	 * 1` for backward (the most recently turned leaf) — or leaves the leaf
+	 * index unresolved (`-1`, inert — no leaf follows, and release can't
+	 * commit) if that direction has nothing left to turn at this end of the
+	 * book. Every subsequent move updates progress (px → [0,1], same
+	 * bookScreenWidthPx normalization as the cover drag) and the
+	 * instantaneous drag velocity (progress/second) + vertical component the
+	 * flex spring reads in updateCoverPivot.
+	 */
+	function handlePagePointerMove(event: PointerEvent): void {
+		if (pagePointerId === null || event.pointerId !== pagePointerId || !activeRig) return;
+		const deltaX = event.clientX - pageDragStartClientX;
+		const deltaY = event.clientY - pageDragStartClientY;
+		if (Math.abs(deltaX) > COVER_CLICK_THRESHOLD_PX) pageDragTraveled = true;
+
+		if (pageDragDirection === null) {
+			if (!pageDragTraveled) {
+				experience.requestFrame();
+				return;
+			}
+			const direction: 1 | -1 = deltaX < 0 ? 1 : -1;
+			const canTurn = direction === 1 ? currentSpread < SPREAD_COUNT - 1 : currentSpread > 0;
+			pageDragDirection = direction;
+			pageDragLeafIndex = canTurn ? (direction === 1 ? currentSpread : currentSpread - 1) : -1;
+			// Velocity bookkeeping starts fresh from the moment direction (and
+			// therefore progress's sign convention) is decided — the
+			// "undecided" window before this shouldn't leak into the first
+			// velocity sample.
+			pageDragLastProgress = 0;
+			pageDragLastTimeMs = performance.now();
+		}
+
+		const widthPx = bookScreenWidthPx(activeRig);
+		const raw = pageDragDirection === 1 ? -deltaX / widthPx : deltaX / widthPx;
+		const progress = THREE.MathUtils.clamp(raw, 0, 1);
+		const nowMs = performance.now();
+		const dtSec = (nowMs - pageDragLastTimeMs) / 1000;
+		if (dtSec > 0.0001) {
+			pageDragVelocity = (progress - pageDragLastProgress) / dtSec;
+		}
+		pageDragLastProgress = progress;
+		pageDragLastTimeMs = nowMs;
+		pageDragProgress = progress;
+		pageDragVerticalComponent = deltaY / widthPx;
+
+		experience.requestFrame();
+	}
+
+	/**
+	 * Pointerup — resolves whatever handlePagePointerDown claimed. Commit vs.
+	 * spring-back is decided once, here, via `shouldCommitTurn`: on commit,
+	 * `currentSpread` advances immediately (nextSpread) and the announce
+	 * fires; either way, clearing `pagePointerId`/`pageDragLeafIndex` is all
+	 * that's needed to hand the leaf back to updateCoverPivot's normal
+	 * leafTargets/damp path — which, per leafTargets' own contract, now
+	 * reads the *post-commit* currentSpread on a commit (so the leaf keeps
+	 * easing the way it was already moving) or the *unchanged* currentSpread
+	 * on a spring-back (so it eases back to where it started). No dedicated
+	 * spring-back code path exists because none is needed.
+	 */
+	function handlePagePointerUp(event: PointerEvent): void {
+		if (pagePointerId === null || event.pointerId !== pagePointerId) return;
+		try {
+			experience.renderer.domElement.releasePointerCapture(event.pointerId);
+		} catch {
+			// See handleCoverPointerDown's matching try/catch.
+		}
+		const leafIndex = pageDragLeafIndex;
+		const direction = pageDragDirection;
+		const progress = pageDragProgress;
+		const velocity = pageDragVelocity;
+		pagePointerId = null;
+		pageDragDirection = null;
+		pageDragLeafIndex = -1;
+		controls.enabled = machine.mode === 'inspect';
+
+		if (leafIndex >= 0 && direction && shouldCommitTurn(progress, Math.abs(velocity))) {
+			currentSpread = nextSpread(currentSpread, direction, SPREAD_COUNT);
+			announce(SPREAD_LABELS[currentSpread] ?? '');
+		}
+		experience.requestFrame();
+	}
+
+	/**
+	 * pointercancel/lostpointercapture recovery for a page drag — mirrors
+	 * handleCoverPointerCancel exactly: never commits, just clears the
+	 * override so the leaf springs back via the normal damp path.
+	 */
+	function handlePagePointerCancel(event: PointerEvent): void {
+		if (pagePointerId === null || event.pointerId !== pagePointerId) return;
+		try {
+			experience.renderer.domElement.releasePointerCapture(event.pointerId);
+		} catch {
+			// See handleCoverPointerDown's matching try/catch.
+		}
+		pagePointerId = null;
+		pageDragDirection = null;
+		pageDragLeafIndex = -1;
+		controls.enabled = machine.mode === 'inspect';
+		experience.requestFrame();
+	}
+
+	/**
+	 * Programmatic prev/next page turn (the inspect HUD's page buttons) —
+	 * eases the same leaf flow a drag would (progress 0→1 over
+	 * PAGE_TURN_DURATION, see updateCoverPivot's `programmaticTurn` branch)
+	 * then commits, exactly mirroring a past-threshold drag release. No-ops
+	 * at either end of the book (mirrors nextSpread's own clamp — matches
+	 * the HUD buttons' own `disabled` state, but guarded here too since
+	 * `turnPage` is a public method any future caller might invoke without
+	 * checking the button's disabled attribute) and while a gesture already
+	 * owns the leaf flow (an in-flight drag, or a turn already in progress).
+	 * Reduced motion (§4.5: "pages jump between spreads with no flex
+	 * animation") commits instantly instead of setting up an eased
+	 * `programmaticTurn` — the very next frame's reduced-motion branch in
+	 * updateCoverPivot already snaps every leaf straight to its
+	 * leafTargets() pose from the new `currentSpread`, so no dedicated snap
+	 * code is needed here either.
+	 */
+	function turnPage(direction: 1 | -1): void {
+		if (!activeRig || !readingOpen || phase !== 'idle' || machine.mode !== 'inspect') return;
+		if (pagePointerId !== null || programmaticTurn) return;
+		const target = nextSpread(currentSpread, direction, SPREAD_COUNT);
+		if (target === currentSpread) return;
+		const leafIndex = direction === 1 ? currentSpread : currentSpread - 1;
+
+		if (reducedMotion()) {
+			currentSpread = target;
+			announce(SPREAD_LABELS[currentSpread] ?? '');
+			experience.requestFrame();
+			return;
+		}
+
+		programmaticTurn = { direction, leafIndex, time: 0 };
+		experience.requestFrame();
+	}
+
 	function resetView(): void {
 		if (machine.mode !== 'inspect') return;
 		clearOrbitMomentum();
@@ -1097,6 +1480,14 @@ export function createInspect(deps: {
 		handleCoverPointerDown,
 		handleCoverPointerMove,
 		handleCoverPointerUp,
-		handleCoverPointerCancel
+		handleCoverPointerCancel,
+		get currentSpread() {
+			return currentSpread;
+		},
+		turnPage,
+		handlePagePointerDown,
+		handlePagePointerMove,
+		handlePagePointerUp,
+		handlePagePointerCancel
 	};
 }

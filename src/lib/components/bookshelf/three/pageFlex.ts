@@ -129,8 +129,11 @@ export function deformSheet(
 // A fully turned leaf stops 0.14rad short of a flat 180° swing — mirrors
 // coverAngle's OPEN_ANGLE (0.22rad short) so a turned page still shows a
 // hair of paper thickness against its neighbor rather than lying perfectly
-// flat.
-const LEAF_TURNED_ANGLE = -(Math.PI - 0.14);
+// flat. Exported (Task 14): inspect.ts's live page-drag/turnPage easing
+// needs this exact endpoint to drive the active leaf's angle directly from
+// drag/turn progress — re-deriving the same constant locally would risk it
+// drifting from leafTargets' own endpoint.
+export const LEAF_TURNED_ANGLE = -(Math.PI - 0.14);
 
 /**
  * Per-leaf rest/turned target — pure function of the leaf's index against
@@ -151,4 +154,53 @@ export function leafTargets(
 	const t = Math.min(Math.max(openAmount, 0), 1);
 	if (t === 0 || leafIndex >= currentSpread) return { angle: 0, z: 0 };
 	return { angle: LEAF_TURNED_ANGLE * t, z: t };
+}
+
+// ============================================================
+// Task 14 (§4.4): page-turn commit rules. Still pure — no rig/pivot/pointer
+// knowledge, mirroring every other slice above; inspect.ts owns the actual
+// gesture (raycast ownership, px→progress, live leaf-follow easing) and
+// calls these two functions only at the moments that matter: every
+// pointermove (to decide, via shouldCommitTurn, nothing yet — that's a
+// pointerup-only decision) and every pointerup/turnPage commit (nextSpread).
+// ============================================================
+
+/**
+ * Whether a released page-turn drag (or a completed `turnPage()` ease)
+ * commits the page to the next spread, vs. springing back to where it
+ * started — reference-style rule: past the midpoint always commits
+ * (regardless of how slow the release was), OR a fast flick commits early
+ * even short of the midpoint. `velocity` is expected non-negative (callers
+ * pass `Math.abs(...)` — see inspect.ts's page-drag release handler); this
+ * function doesn't itself take the sign, only the magnitude, since "how
+ * fast" not "which way" is what turns a short drag into a commit.
+ *
+ * §8 item 9 / §4.4's "a committed page must not spring back" invariant is
+ * NOT enforced here — it can't be, this function only classifies a single
+ * released gesture. The invariant instead falls out of how the caller uses
+ * the result: once this returns `true`, inspect.ts advances `currentSpread`
+ * via `nextSpread` and lets the leaf's existing damp-toward-target loop
+ * carry it the rest of the way to its *new* target — never back to its old
+ * one — so a page that commits keeps moving in the same direction it was
+ * already moving, structurally incapable of reversing.
+ */
+export function shouldCommitTurn(progress: number, velocity: number): boolean {
+	return progress >= 0.5 || (progress >= 0.18 && velocity >= 1.6);
+}
+
+/**
+ * Clamped `currentSpread` step — `direction` is which way the gesture turned
+ * (1 forward toward the back of the book, -1 backward toward the cover);
+ * `spreadCount` is the total number of spreads (Cover/Title page/About/
+ * Details today, §4.4 — Task 15 wires the real per-book count), so the only
+ * valid `currentSpread` values are `[0, spreadCount - 1]`. Turning past
+ * either end is a no-op (returns `current` unchanged) rather than clamping
+ * into an out-of-range value — mirrors `coverAngle`'s own `[0, 1]` clamp
+ * discipline for the same reason: a caller that doesn't itself guard the
+ * gesture (e.g. a drag released past the last spread) still can't corrupt
+ * state.
+ */
+export function nextSpread(current: number, direction: 1 | -1, spreadCount: number): number {
+	const maxSpread = Math.max(spreadCount - 1, 0);
+	return Math.min(Math.max(current + direction, 0), maxSpread);
 }

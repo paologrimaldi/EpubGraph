@@ -110,6 +110,14 @@
 	// Mirrors InspectController.readingOpen for the "Open book" HUD toggle's
 	// aria-pressed (see syncReadingOpen) — same pattern as the `mode` mirror.
 	let readingOpen = false;
+	// Task 14: mirrors InspectController.currentSpread for the prev/next page
+	// HUD buttons' disabled states — same rationale/pattern as readingOpen
+	// (see syncCurrentSpread). `spreadCount` is captured once from the
+	// dynamically-imported inspect module during initScene (mirrors how
+	// `shelfTop` is captured from experienceModule) since it's a static
+	// constant, not per-frame state.
+	let currentSpread = 0;
+	let spreadCount = 4;
 	let liveMessage = '';
 	let announceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -169,6 +177,7 @@
 		const inspectMoving = inspect?.update(dt) ?? false;
 		syncMode();
 		syncReadingOpen();
+		syncCurrentSpread();
 		// Drain a close that arrived while still 'opening' (Finding 3) the
 		// instant 'inspect' is reached — at most one frame after
 		// inspect.update() above drove finishOpening(), never waiting on a
@@ -193,6 +202,13 @@
 	function syncReadingOpen(): void {
 		const value = inspect?.readingOpen ?? false;
 		if (readingOpen !== value) readingOpen = value;
+	}
+
+	// Task 14: mirrors InspectController.currentSpread for the prev/next page
+	// HUD buttons' disabled states — same rationale as syncReadingOpen.
+	function syncCurrentSpread(): void {
+		const value = inspect?.currentSpread ?? 0;
+		if (currentSpread !== value) currentSpread = value;
 	}
 
 	function announceSelection(index: number): void {
@@ -296,6 +312,7 @@
 					liveMessage = msg;
 				}
 			});
+			spreadCount = inspectModule.SPREAD_COUNT;
 
 			experience.onFrame(handleFrame);
 			experience.requestFrame();
@@ -482,7 +499,12 @@
 		// Forwarded unconditionally in inspect mode — a no-op inside
 		// InspectController unless this pointerId is the one
 		// handlePointerDown's cover raycast already claimed (Task 12, §4.4).
-		if (modeMachine.mode === 'inspect') inspect?.handleCoverPointerMove(event);
+		// Task 14: page-drag move is forwarded the same way — a no-op unless
+		// this pointerId is the one a page drag claimed.
+		if (modeMachine.mode === 'inspect') {
+			inspect?.handleCoverPointerMove(event);
+			inspect?.handlePagePointerMove(event);
+		}
 		if (modeMachine.mode !== 'shelf' && modeMachine.mode !== 'inspect') return;
 		const hit = raycastBook(event);
 		setHover(hit?.book ?? null, pointerToNdc(event));
@@ -512,15 +534,26 @@
 		// a cover drag traveling past the threshold makes
 		// clickTraveledPastThreshold() true, so the subsequent native `click`
 		// no-ops instead of also closing inspect.
-		if (modeMachine.mode === 'inspect') inspect?.handleCoverPointerDown(event);
+		// Task 14: only try a page-drag claim if the cover didn't already
+		// claim this pointer — the two raycast different mesh sets
+		// (frontPivot vs. pageSurfaces) and can't legitimately both hit, but
+		// trying the cover first keeps a single pointerId owned by at most
+		// one gesture.
+		if (modeMachine.mode === 'inspect') {
+			const claimedCover = inspect?.handleCoverPointerDown(event) ?? false;
+			if (!claimedCover) inspect?.handlePagePointerDown(event);
+		}
 	}
 
-	// Resolves whatever handleCoverPointerDown claimed (Task 12) — commit/
-	// spring-back or click-toggle, all decided inside InspectController. A
-	// no-op if no cover drag is in flight for this pointerId.
+	// Resolves whatever handleCoverPointerDown/handlePagePointerDown claimed
+	// (Task 12/14) — commit/spring-back or click-toggle, all decided inside
+	// InspectController. A no-op if no cover/page drag is in flight for this
+	// pointerId (each handler independently checks its own claimed
+	// pointerId, so forwarding both unconditionally is safe).
 	function handlePointerUp(event: PointerEvent): void {
 		if (modeMachine.mode !== 'inspect') return;
 		inspect?.handleCoverPointerUp(event);
+		inspect?.handlePagePointerUp(event);
 		experience?.requestFrame();
 	}
 
@@ -536,6 +569,7 @@
 	function handlePointerCancel(event: PointerEvent): void {
 		if (modeMachine.mode !== 'inspect') return;
 		inspect?.handleCoverPointerCancel(event);
+		inspect?.handlePagePointerCancel(event);
 		experience?.requestFrame();
 	}
 
@@ -965,6 +999,30 @@
 				>
 					Open book
 				</button>
+				{#if readingOpen}
+					<!-- Task 14 (§4.4): programmatic prev/next mirror every drag/spring
+					     gesture (InspectController.turnPage) — disabled at either end so
+					     a keyboard/AT user gets the same "can't turn past the end" signal
+					     the drag's own commit-vs-inert-direction logic already enforces. -->
+					<button
+						type="button"
+						class="inspect-round-btn"
+						aria-label="Previous page"
+						disabled={currentSpread <= 0}
+						on:click={() => inspect?.turnPage(-1)}
+					>
+						<ChevronLeft class="w-4 h-4" />
+					</button>
+					<button
+						type="button"
+						class="inspect-round-btn"
+						aria-label="Next page"
+						disabled={currentSpread >= spreadCount - 1}
+						on:click={() => inspect?.turnPage(1)}
+					>
+						<ChevronRight class="w-4 h-4" />
+					</button>
+				{/if}
 			</div>
 		{/if}
 	{:else}
@@ -1093,6 +1151,46 @@
 	}
 
 	.inspect-reset-btn:focus-visible {
+		outline: 2px solid var(--gw-accent);
+		outline-offset: 2px;
+	}
+
+	/* Task 14: prev/next page buttons — same glass-pill surface language as
+	   .inspect-reset-btn, just round (matching .hud-round-btn's shape) so the
+	   two page buttons read as a distinct icon-button pair next to the
+	   text-label toggles. */
+	.inspect-round-btn {
+		pointer-events: auto;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		flex: 0 0 auto;
+		border-radius: 999px;
+		background: var(--gw-surface);
+		backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		-webkit-backdrop-filter: blur(var(--gw-blur)) saturate(180%);
+		color: var(--gw-fg);
+		border: 0.5px solid var(--gw-border);
+		box-shadow: var(--gw-shadow-lg);
+		transition: background 0.15s ease, transform 0.1s ease;
+	}
+
+	.inspect-round-btn:hover:not(:disabled) {
+		background: var(--gw-surface-elevated);
+	}
+
+	.inspect-round-btn:active:not(:disabled) {
+		transform: scale(0.94);
+	}
+
+	.inspect-round-btn:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+
+	.inspect-round-btn:focus-visible {
 		outline: 2px solid var(--gw-accent);
 		outline-offset: 2px;
 	}

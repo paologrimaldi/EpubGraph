@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { coverOpenAmount, coverAngle, stepFlex, deformSheet, leafTargets, type FlexState } from './pageFlex';
+import {
+	coverOpenAmount,
+	coverAngle,
+	stepFlex,
+	deformSheet,
+	leafTargets,
+	shouldCommitTurn,
+	nextSpread,
+	type FlexState
+} from './pageFlex';
 
 describe('coverOpenAmount', () => {
 	it('closed book, no drag → 0; open book → 1', () => {
@@ -110,5 +119,26 @@ describe('deformSheet', () => {
 		const versionBefore = attr.version;
 		deformSheet(base, attr, 0.3, 0, 1);
 		expect(attr.version).toBe(versionBefore);
+	});
+});
+
+describe('shouldCommitTurn (§4.4: committed page never springs back)', () => {
+	it('past midpoint commits regardless of velocity', () => {
+		expect(shouldCommitTurn(0.51, 0)).toBe(true);
+	});
+	it('flick commits early', () => {
+		expect(shouldCommitTurn(0.2, 2.0)).toBe(true);
+		expect(shouldCommitTurn(0.2, 0.5)).toBe(false);
+	});
+	it('small drags spring back', () => {
+		expect(shouldCommitTurn(0.1, 5)).toBe(false);
+	});
+});
+
+describe('nextSpread', () => {
+	it('clamps at both ends', () => {
+		expect(nextSpread(0, -1, 4)).toBe(0);
+		expect(nextSpread(3, 1, 4)).toBe(3);
+		expect(nextSpread(1, 1, 4)).toBe(2);
 	});
 });
