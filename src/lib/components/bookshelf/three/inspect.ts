@@ -19,6 +19,7 @@ import {
 	leafTargets,
 	shouldCommitTurn,
 	nextSpread,
+	canClaimPageDrag,
 	LEAF_TURNED_ANGLE,
 	type CoverDrag,
 	type FlexState
@@ -1349,10 +1350,18 @@ export function createInspect(deps: {
 	 * capture, OrbitControls disabled) the same way handleCoverPointerDown
 	 * claims a cover drag. Direction/leaf ownership aren't decided yet (see
 	 * handlePagePointerMove) — only the pointer is claimed here.
+	 *
+	 * Critical fix (Task 14 review): must refuse the claim while a
+	 * `programmaticTurn` (HUD next/prev ease) is in flight, exactly mirroring
+	 * `turnPage`'s own guard — see `canClaimPageDrag`'s doc comment in
+	 * pageFlex.ts for the exact double-commit/spring-back bug this prevents.
+	 * Before this fix, a page-drag pointerdown mid-ease would claim the
+	 * pointer anyway (only `pagePointerId` was checked), letting the drag and
+	 * the still-running ease both independently commit the same leaf.
 	 */
 	function handlePagePointerDown(event: PointerEvent): boolean {
 		if (!activeRig || !readingOpen || machine.mode !== 'inspect' || phase !== 'idle') return false;
-		if (pagePointerId !== null) return false; // a page drag is already claimed
+		if (!canClaimPageDrag(pagePointerId, programmaticTurn !== null)) return false;
 		if (!raycastPageHit(event)) return false;
 		pagePointerId = event.pointerId;
 		pageDragStartClientX = event.clientX;
@@ -1492,7 +1501,9 @@ export function createInspect(deps: {
 	 * the HUD buttons' own `disabled` state, but guarded here too since
 	 * `turnPage` is a public method any future caller might invoke without
 	 * checking the button's disabled attribute) and while a gesture already
-	 * owns the leaf flow (an in-flight drag, or a turn already in progress).
+	 * owns the leaf flow (an in-flight drag, or a turn already in progress —
+	 * `canClaimPageDrag`, shared with `handlePagePointerDown`'s symmetric
+	 * guard so both directions of the mutual-exclusion rule stay in sync).
 	 * Reduced motion (§4.5: "pages jump between spreads with no flex
 	 * animation") commits instantly instead of setting up an eased
 	 * `programmaticTurn` — the very next frame's reduced-motion branch in
@@ -1502,7 +1513,7 @@ export function createInspect(deps: {
 	 */
 	function turnPage(direction: 1 | -1): void {
 		if (!activeRig || !readingOpen || phase !== 'idle' || machine.mode !== 'inspect') return;
-		if (pagePointerId !== null || programmaticTurn) return;
+		if (!canClaimPageDrag(pagePointerId, programmaticTurn !== null)) return;
 		const target = nextSpread(currentSpread, direction, activeSpreadCount());
 		if (target === currentSpread) return;
 		const leafIndex = direction === 1 ? currentSpread : currentSpread - 1;

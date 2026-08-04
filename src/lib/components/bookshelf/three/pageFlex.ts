@@ -204,3 +204,28 @@ export function nextSpread(current: number, direction: 1 | -1, spreadCount: numb
 	const maxSpread = Math.max(spreadCount - 1, 0);
 	return Math.min(Math.max(current + direction, 0), maxSpread);
 }
+
+/**
+ * Whether a new page-turn gesture is allowed to claim the leaf flow right
+ * now — the two ways a leaf can already be mid-turn are mutually exclusive
+ * with a *new* claim of either kind, and with each other: a live drag
+ * (`pagePointerId !== null`) and an eased `turnPage()` call
+ * (`programmaticTurnActive`) must never both be driving the same leaf's
+ * angle/z at once, or whichever one finishes first "commits" a spread that
+ * the other then silently un-commits by continuing to animate — the
+ * scenario this function exists to prevent: HUD next-arrow click starts a
+ * 0.45s `programmaticTurn` ease; before it finishes, a page-drag pointerdown
+ * claims the same leaf (the pre-fix `handlePagePointerDown` checked
+ * `pagePointerId` but not `programmaticTurn`); the drag commits `currentSpread`
+ * a second time while the still-running `programmaticTurn` independently
+ * reaches `time >= PAGE_TURN_DURATION` and commits *again* — the leaf's
+ * angle then snaps backward mid-flight and `currentSpread` double-advances,
+ * violating §8 item 9's "a committed page never springs back" invariant.
+ * `turnPage()` already guarded itself this way (`pagePointerId !== null ||
+ * programmaticTurn`); this factors that same predicate out to a pure,
+ * independently-testable function so `handlePagePointerDown` can enforce the
+ * identical rule instead of a *different*, incomplete one.
+ */
+export function canClaimPageDrag(pagePointerId: number | null, programmaticTurnActive: boolean): boolean {
+	return pagePointerId === null && !programmaticTurnActive;
+}

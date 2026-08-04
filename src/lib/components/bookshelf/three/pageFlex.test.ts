@@ -8,6 +8,7 @@ import {
 	leafTargets,
 	shouldCommitTurn,
 	nextSpread,
+	canClaimPageDrag,
 	type FlexState
 } from './pageFlex';
 
@@ -140,5 +141,63 @@ describe('nextSpread', () => {
 		expect(nextSpread(0, -1, 4)).toBe(0);
 		expect(nextSpread(3, 1, 4)).toBe(3);
 		expect(nextSpread(1, 1, 4)).toBe(2);
+	});
+});
+
+describe('canClaimPageDrag (Task 14 review fix: mutual exclusion with programmaticTurn)', () => {
+	it('allows a claim when nothing owns the leaf flow', () => {
+		expect(canClaimPageDrag(null, false)).toBe(true);
+	});
+
+	it('refuses a claim while a drag already owns the pointer', () => {
+		expect(canClaimPageDrag(7, false)).toBe(false);
+	});
+
+	it('refuses a claim while a programmatic turn is in flight', () => {
+		expect(canClaimPageDrag(null, true)).toBe(false);
+	});
+
+	it('refuses a claim when both would somehow be true at once', () => {
+		expect(canClaimPageDrag(7, true)).toBe(false);
+	});
+
+	it('regression: HUD turnPage() followed immediately by a page-drag claim, within the ease window, is refused — the drag must not be able to double-commit the spread turnPage() already started', () => {
+		// Simulates the exact interleaving from the Task 14 review: a HUD
+		// next-arrow click starts an eased programmatic turn (turnPage's own
+		// guard already passed — nothing owned the leaf flow yet); before that
+		// ease reaches PAGE_TURN_DURATION and commits, a page-drag pointerdown
+		// arrives on the same leaf.
+		let currentSpread = 0;
+		const spreadCount = 4;
+		const pagePointerId: number | null = null;
+
+		// Before the HUD click: nothing owns the leaf flow, so turnPage(1)'s
+		// own guard passes and it sets `programmaticTurn = { direction: 1, ... }`.
+		let programmaticTurnActive = false;
+		expect(canClaimPageDrag(pagePointerId, programmaticTurnActive)).toBe(true); // turnPage's own guard passes here
+		programmaticTurnActive = true; // turnPage() just started its ease
+
+		// A page-drag pointerdown now arrives mid-ease, before that ease has
+		// reached PAGE_TURN_DURATION and committed. Pre-fix,
+		// handlePagePointerDown only checked `pagePointerId` (still null here),
+		// so it would have wrongly claimed the drag on top of the still-running
+		// ease. Post-fix, canClaimPageDrag must refuse it.
+		const dragClaimed = canClaimPageDrag(pagePointerId, programmaticTurnActive);
+		expect(dragClaimed).toBe(false);
+
+		// Since the claim is refused, no drag-driven commit happens here —
+		// currentSpread only ever advances once, when the programmatic turn's
+		// own ease later completes.
+		if (dragClaimed) currentSpread = nextSpread(currentSpread, 1, spreadCount); // must not run
+		expect(currentSpread).toBe(0);
+
+		// The programmatic turn completes on its own (its ease reaches
+		// PAGE_TURN_DURATION) — this is the only commit for this gesture.
+		programmaticTurnActive = false;
+		currentSpread = nextSpread(currentSpread, 1, spreadCount);
+		expect(currentSpread).toBe(1); // advanced by exactly 1 total, never double-advanced
+
+		// Only *after* programmaticTurn clears can a fresh drag claim succeed.
+		expect(canClaimPageDrag(pagePointerId, programmaticTurnActive)).toBe(true);
 	});
 });
