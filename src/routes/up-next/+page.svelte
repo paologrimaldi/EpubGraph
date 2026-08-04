@@ -89,7 +89,6 @@
 					books={$upNextBooksWithWant}
 					bind:selectedBookId
 					on:bookSelected={handleBookSelected}
-					maxBooksPerShelf={8}
 				/>
 			{/if}
 		</div>
