@@ -20,9 +20,19 @@ describe('blendPaletteWithMode (§4.1)', () => {
 });
 
 describe('easeSceneColor', () => {
-	it('converges and snaps exactly to target', () => {
+	it('converges and snaps exactly to target at 60fps', () => {
 		let c = '#000000';
 		for (let i = 0; i < 400; i++) c = easeSceneColor(c, '#a05020', 6, 1 / 60);
+		expect(c).toBe('#a05020');
+	});
+	it('converges and snaps exactly to target at 90fps', () => {
+		let c = '#000000';
+		for (let i = 0; i < 400; i++) c = easeSceneColor(c, '#a05020', 6, 1 / 90);
+		expect(c).toBe('#a05020');
+	});
+	it('converges and snaps exactly to target at 144fps', () => {
+		let c = '#000000';
+		for (let i = 0; i < 400; i++) c = easeSceneColor(c, '#a05020', 6, 1 / 144);
 		expect(c).toBe('#a05020');
 	});
 	it('is a no-op at target', () => {

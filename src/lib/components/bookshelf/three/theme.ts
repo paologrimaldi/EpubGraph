@@ -21,8 +21,7 @@ export function easeSceneColor(current: string, target: string, lambda: number, 
 	if (current === target) return target;
 	const t = 1 - Math.exp(-lambda * dt);
 	const next = mixHex(current, target, t);
-	// snap when every channel is within ~2% (5/255), accounting for rounding accumulation
-	const close = [1, 3, 5].every((i) =>
-		Math.abs(parseInt(next.slice(i, i + 2), 16) - parseInt(target.slice(i, i + 2), 16)) <= 5);
-	return close ? target : next;
+	// snap when no rounding progress is possible (dt-agnostic, works across all refresh rates)
+	if (next === current) return target;
+	return next;
 }
