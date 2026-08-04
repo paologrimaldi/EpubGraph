@@ -16,7 +16,7 @@
 - No new runtime dependencies. Only new devDependency: `vitest@^2.1.0`.
 - All Three example-module imports from `three/examples/jsm/...` (already shipped with three ^0.182.0).
 - Renderer: `ACESFilmicToneMapping`, `toneMappingExposure 0.9`, `SRGBColorSpace`, PMREM `RoomEnvironment` intensity `0.72`, `FogExp2` density `0.027`, PCFSoftShadowMap, DPR `min(devicePixelRatio, 2)` (`1.5` when container < 820 px wide).
-- Carousel constants (§4.2): spacing `1.18`; pose `y = shelfTop + h/2 + focus*0.15`, `z = 0.13 + focus*0.24 − min(|offset|,2.8)*0.07`, `rotY = −offset*0.105`, `rotZ = −offset*0.018`, `scale = 1 + focus*0.09`; fade band `|offset| ∈ [2.55, 3.25]`; hit target disabled below opacity `0.12`; wrap only when queue ≥ 5.
+- Carousel constants (§4.2): spacing `1.34` (retuned at the Task 7 visual checkpoint); pose `y = shelfTop + h/2 + focus*0.15`, `z = 0.13 + focus*0.24 − min(|offset|,2.8)*0.07`, `rotY = −offset*0.105`, `rotZ = −offset*0.018`, `scale = 1 + focus*0.09`; fade band `|offset| ∈ [2.55, 3.25]`; hit target disabled below opacity `0.12`; wrap only when queue ≥ 5.
 - Damping: `damp(x,t,λ,dt) = t + (x−t)·e^(−λ·dt)`; carousel position λ=9.5, rig pose λ=12, wheel idle snap after 0.14 s.
 - Book sizes: height 1.46–1.58, width 0.92–1.10, depth 0.22–0.30, board 0.032, cover corner radius 0.0045 (sharp, never pill-shaped), seeded per book id — deterministic across sessions.
 - Transitions are time-based with precomputed endpoints (`smootherstep`); first/final frames must equal captured endpoints exactly. Durations: open 0.9 s, close 0.9 s.
