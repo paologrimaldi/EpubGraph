@@ -4,11 +4,11 @@ import type { Pose } from '../types/experience';
 import type { Experience } from './experience';
 import { SHELF_CAMERA_POSITION, SHELF_CAMERA_TARGET, SHELF_TOP } from './experience';
 import type { Carousel } from './carousel';
-import { HOVER_CRACK } from './carousel';
 import type { RigHandle } from './bookRig';
 import type { ModeMachine } from './state';
 import { smootherstep, shelfPose, damp } from './carouselMath';
 import { capturePose, lerpPose, inspectScale, type PoseTargets } from './inspectMath';
+import { coverOpenAmount, coverAngle, HOVER_CRACK, type CoverDrag } from './pageFlex';
 
 export interface InspectController {
 	open(rig: RigHandle, origin: HTMLElement | null): void; // shelf→opening
@@ -27,6 +27,17 @@ export interface InspectController {
 	// the implementation's doc comment for the full contract.
 	forceReset(): void;
 	readonly activeRig: RigHandle | null;
+	// Task 12 (§4.4): front-cover open/close. `readingOpen` is the settled
+	// state the HUD toggle mirrors; the three pointer handlers own the whole
+	// click-vs-drag gesture (raycast ownership, px→progress mapping, commit/
+	// spring-back, OrbitControls suppression for the duration of a claimed
+	// drag) so that logic stays colocated with the frontPivot/pagePivot
+	// transform it drives instead of leaking into Library3D.svelte.
+	readonly readingOpen: boolean;
+	setReadingOpen(open: boolean): void;
+	handleCoverPointerDown(event: PointerEvent): boolean; // true if claimed (started a cover drag)
+	handleCoverPointerMove(event: PointerEvent): void;
+	handleCoverPointerUp(event: PointerEvent): void;
 }
 
 // Inspect pose constants — the design brief's original numbers ([0,1.5,3.1]
@@ -60,6 +71,23 @@ const ORBIT_DAMPING_FACTOR = 0.08;
 // the crack angle itself (HOVER_CRACK) is shared).
 const HOVER_CRACK_LAMBDA = 12;
 const HOVER_CRACK_EPS = 0.0004;
+
+// Task 12 (§4.4): front-cover open/close easing + gesture tuning.
+const COVER_OPEN_LAMBDA = 10; // brief-specified "damped, λ≈10"
+const COVER_OPEN_EPS = 0.0006;
+// How fully shut counts as "close enough to skip/finish the settle window" —
+// looser than COVER_OPEN_EPS (a per-frame damp-convergence epsilon) since
+// this only gates a one-time "is there anything worth animating" decision.
+const COVER_SETTLE_EPS = 0.01;
+const COVER_SETTLE_MAX_SECONDS = 0.35;
+// Same click/drag distinction threshold as Library3D.svelte's own
+// CLICK_DRAG_THRESHOLD_PX (kept local rather than imported — this module's
+// pointer handlers are otherwise fully self-contained, see the interface
+// doc above).
+const COVER_CLICK_THRESHOLD_PX = 6;
+// Placeholder per-leaf fan stagger (Task 12 brief) until Task 13 replaces it
+// with real leaf spring physics — leaf i eases toward LEAF_FAN_STEP*(i+1)*openAmount.
+const LEAF_FAN_STEP = -0.06;
 
 const IDENTITY_POSE: Pose = { position: [0, 0, 0], quaternion: [0, 0, 0, 1], scale: 1 };
 
@@ -109,7 +137,10 @@ export function createInspect(deps: {
 
 	let activeRig: RigHandle | null = null;
 	let originEl: HTMLElement | null = null;
-	let phase: 'idle' | 'opening' | 'closing' = 'idle';
+	// 'settling-cover': close() detoured here (mode stays 'inspect') to let
+	// an open cover ease shut before the shelf-return transition starts —
+	// see close()/beginClosingTransition() below.
+	let phase: 'idle' | 'opening' | 'closing' | 'settling-cover' = 'idle';
 	let transitionTime = 0;
 	let currentViewOffset = 0;
 
@@ -117,6 +148,30 @@ export function createInspect(deps: {
 	// owned entirely here instead of routing through Carousel.setHovered.
 	let hoverCrackTarget = 0;
 	let hoverCrackAngle = 0;
+
+	// Task 12 (§4.4): front-cover open/close state — `readingOpen` is the
+	// settled toggle, `coverDrag` the in-flight pointer-drag override
+	// `coverOpenAmount` (pageFlex.ts) blends between. `coverAngleCurrent` is
+	// the eased frontPivot.rotation.y contribution from open/close (summed
+	// with `hoverCrackAngle` each frame — see updateCoverPivot); `leafAngles`
+	// mirrors it per page-leaf for the placeholder fan.
+	let readingOpen = false;
+	let coverDrag: CoverDrag = { active: false, kind: null, progress: 0 };
+	let coverAngleCurrent = 0;
+	let leafAngles: number[] = [0, 0, 0, 0, 0, 0];
+	let settleTime = 0;
+
+	// Cover-drag pointer tracking — a single claimed pointerId at a time
+	// (a second finger/pointer during an active drag is simply ignored by
+	// handleCoverPointerDown's raycast-ownership check never being asked,
+	// since Library3D only forwards the container's own pointer events).
+	let coverPointerId: number | null = null;
+	let coverDragStartClientX = 0;
+	let coverDragTraveled = false;
+	let coverDragKindAtStart: 'cover-open' | 'cover-close' | null = null;
+	const coverRaycaster = new THREE.Raycaster();
+	const coverPointerNdc = new THREE.Vector2();
+	const scratchBookWorldPos = new THREE.Vector3();
 
 	// inspect.ts is the sole owner of camera orientation outside shelf mode
 	// (shelf browsing never moves the camera) — this tracks "wherever the
@@ -176,6 +231,107 @@ export function createInspect(deps: {
 	function focusedSlotPose(rig: RigHandle): Pose {
 		const pose = shelfPose(0, rig.identity.size.height, SHELF_TOP);
 		return { position: [pose.x, pose.y, pose.z], quaternion: [0, 0, 0, 1], scale: pose.scale };
+	}
+
+	/** Cover-drag pointer coordinates → NDC, against the actual canvas rect
+	 * (not the outer container Library3D.svelte owns) — mirrors
+	 * Library3D.svelte's own pointerToNdc, kept local so this module's cover
+	 * pointer handlers are fully self-contained. */
+	function pointerToNdc(event: PointerEvent): { x: number; y: number } {
+		const rect = experience.renderer.domElement.getBoundingClientRect();
+		return {
+			x: rect.width === 0 ? 0 : ((event.clientX - rect.left) / rect.width) * 2 - 1,
+			y: rect.height === 0 ? 0 : -((event.clientY - rect.top) / rect.height) * 2 + 1
+		};
+	}
+
+	/** Whether `event` lands on the active rig's front cover (any mesh under
+	 * `frontPivot` — cover board, art, foil, endpaper, groove) — the raycast
+	 * that decides cover-drag ownership on pointerdown. Only ever true during
+	 * idle inspect browsing: gated on `phase === 'idle'` so a click landing
+	 * mid-open/close/settle transition (or a second cover-drag claimed while
+	 * one is already easing shut, see close()) can't reopen the mid-flight
+	 * transform this controller is already animating. */
+	function raycastCoverHit(event: PointerEvent): boolean {
+		if (!activeRig || machine.mode !== 'inspect' || phase !== 'idle') return false;
+		const ndc = pointerToNdc(event);
+		coverPointerNdc.set(ndc.x, ndc.y);
+		// Inspect moves the camera every frame it's active — force a fresh
+		// matrixWorld so a raycast firing between two rendered frames (e.g.
+		// mid-orbit-drag) doesn't use a stale camera transform (mirrors
+		// Library3D.svelte's raycastBook).
+		camera.updateMatrixWorld();
+		coverRaycaster.setFromCamera(coverPointerNdc, camera);
+		return coverRaycaster.intersectObject(activeRig.frontPivot, true).length > 0;
+	}
+
+	/** Approximate on-screen width (px) of `rig` at its *current* camera
+	 * distance — used to normalize cover-drag horizontal travel into a
+	 * [0,1] progress (§4.4: "px → progress normalized by the book's
+	 * on-screen width"). Uses the live camera↔book distance (not the fixed
+	 * INSPECT_DISTANCE constant) so drag sensitivity stays correct even
+	 * after the user has dollied in/out via OrbitControls. */
+	function bookScreenWidthPx(rig: RigHandle): number {
+		rig.root.getWorldPosition(scratchBookWorldPos);
+		const distance = Math.max(camera.position.distanceTo(scratchBookWorldPos), 0.001);
+		const vFov = THREE.MathUtils.degToRad(camera.fov);
+		const frustumHeight = 2 * Math.tan(vFov / 2) * distance;
+		const frustumWidthAtBook = frustumHeight * camera.aspect;
+		const viewportWidthPx = Math.max(experience.renderer.domElement.clientWidth, 1);
+		if (frustumWidthAtBook <= 0) return viewportWidthPx; // defensive: never divide by ~0
+		const bookWorldWidth = rig.identity.size.width * rig.root.scale.x;
+		return Math.max((bookWorldWidth / frustumWidthAtBook) * viewportWidthPx, 1);
+	}
+
+	/**
+	 * Advances the frontPivot/pagePivot cover-open transform one frame:
+	 * hover-crack (suppressed while reading open or a drag owns the pivot)
+	 * plus the open/close angle itself (live 1:1 while a drag is active,
+	 * damped toward `coverAngle(openAmount)` at COVER_OPEN_LAMBDA otherwise —
+	 * "damped, λ≈10" per the brief), plus the placeholder per-leaf fan.
+	 * Reduced motion snaps every channel straight to its target. Returns
+	 * whether anything is still easing (mirrors carousel.ts's `ease()`
+	 * settled-boolean convention).
+	 */
+	function updateCoverPivot(dt: number): boolean {
+		if (!activeRig) return false;
+		let unsettled = false;
+		const reduced = reducedMotion();
+
+		const crackTarget = readingOpen || coverDrag.active ? 0 : hoverCrackTarget;
+		if (reduced || Math.abs(hoverCrackAngle - crackTarget) < HOVER_CRACK_EPS) {
+			hoverCrackAngle = crackTarget;
+		} else {
+			hoverCrackAngle = damp(hoverCrackAngle, crackTarget, HOVER_CRACK_LAMBDA, dt);
+			unsettled = true;
+		}
+
+		const openAmount = coverOpenAmount(readingOpen, coverDrag);
+		const angleTarget = coverAngle(openAmount);
+		if (coverDrag.active) {
+			coverAngleCurrent = angleTarget;
+		} else if (reduced || Math.abs(coverAngleCurrent - angleTarget) < COVER_OPEN_EPS) {
+			coverAngleCurrent = angleTarget;
+		} else {
+			coverAngleCurrent = damp(coverAngleCurrent, angleTarget, COVER_OPEN_LAMBDA, dt);
+			unsettled = true;
+		}
+		activeRig.frontPivot.rotation.y = coverAngleCurrent + hoverCrackAngle;
+
+		for (let i = 0; i < activeRig.pagePivots.length; i++) {
+			const leafTarget = LEAF_FAN_STEP * (i + 1) * openAmount;
+			if (coverDrag.active) {
+				leafAngles[i] = leafTarget;
+			} else if (reduced || Math.abs(leafAngles[i] - leafTarget) < COVER_OPEN_EPS) {
+				leafAngles[i] = leafTarget;
+			} else {
+				leafAngles[i] = damp(leafAngles[i], leafTarget, COVER_OPEN_LAMBDA, dt);
+				unsettled = true;
+			}
+			activeRig.pagePivots[i].rotation.y = leafAngles[i];
+		}
+
+		return unsettled;
 	}
 
 	function applyBookPose(t: number): void {
@@ -379,6 +535,23 @@ export function createInspect(deps: {
 		hoverCrackTarget = 0;
 		hoverCrackAngle = 0;
 
+		// Task 12: instantly drop any in-flight/settled cover-open state too —
+		// pagePivots have no other owner (unlike frontPivot, carousel.ts never
+		// touches them), so without this explicit reset a rig that survives a
+		// forceReset() mid-fan would carry visibly fanned pages back onto the
+		// shelf forever.
+		readingOpen = false;
+		coverDrag = { active: false, kind: null, progress: 0 };
+		coverAngleCurrent = 0;
+		leafAngles.fill(0);
+		coverPointerId = null;
+		coverDragKindAtStart = null;
+		settleTime = 0;
+		if (rig) {
+			rig.frontPivot.rotation.y = 0;
+			for (const pivot of rig.pagePivots) pivot.rotation.y = 0;
+		}
+
 		activeRig = null;
 		originEl = null;
 		phase = 'idle';
@@ -436,6 +609,18 @@ export function createInspect(deps: {
 		hoverCrackAngle = 0;
 		rig.frontPivot.rotation.y = 0;
 
+		// Task 12: a fresh open() always starts from a closed, un-dragged
+		// book — reset every cover-open channel regardless of whatever the
+		// *previously* inspected book was left at.
+		readingOpen = false;
+		coverDrag = { active: false, kind: null, progress: 0 };
+		coverAngleCurrent = 0;
+		leafAngles.fill(0);
+		coverPointerId = null;
+		coverDragKindAtStart = null;
+		settleTime = 0;
+		for (const pivot of rig.pagePivots) pivot.rotation.y = 0;
+
 		machine.to('opening');
 		phase = 'opening';
 		transitionTime = 0;
@@ -449,9 +634,25 @@ export function createInspect(deps: {
 		}
 	}
 
-	function close(): void {
-		if (!activeRig || !machine.can('closing')) return;
+	/** The actual shelf-return transition (camera/book/shelfStage/view-offset
+	 * choreography) — factored out of close() so a settling cover (Task 12,
+	 * §4.4) can delay entering it without duplicating any of this. */
+	function beginClosingTransition(): void {
 		const rig = activeRig;
+		if (!rig) return;
+
+		// Belt-and-suspenders exact stamp (mirrors finishOpening()'s own
+		// "hard-set exact endpoints" comment) — close()'s settle window aims
+		// for this via damping but caps out at COVER_SETTLE_MAX_SECONDS, so
+		// this guarantees the book is provably closed the instant the
+		// shelf-return transition begins regardless of whether the ease
+		// actually converged in time.
+		rig.frontPivot.rotation.y = 0;
+		for (const pivot of rig.pagePivots) pivot.rotation.y = 0;
+		coverAngleCurrent = 0;
+		hoverCrackAngle = 0;
+		hoverCrackTarget = 0;
+		leafAngles.fill(0);
 
 		controls.enabled = false;
 
@@ -483,6 +684,36 @@ export function createInspect(deps: {
 		}
 	}
 
+	function close(): void {
+		if (!activeRig || !machine.can('closing')) return;
+		// Already mid-settle (or, per the can('closing') guard above, mid the
+		// real closing transition — 'closing' fails can('closing') on its
+		// own) — idempotent no-op rather than restarting the settle timer on
+		// a repeat call (e.g. a double Escape/click-outside during the
+		// ≤0.35s settle window).
+		if (phase === 'settling-cover') return;
+
+		// §4.4: settle the cover first if it's open or mid-drag — drag is
+		// cleared without committing (spring-back semantics: an in-flight
+		// drag never gets to finish its own gesture once close() preempts
+		// it) before deciding whether there's actually anything to settle.
+		if (coverDrag.active) {
+			coverPointerId = null;
+			coverDragKindAtStart = null;
+			coverDrag = { active: false, kind: null, progress: 0 };
+		}
+		const needsSettle = (readingOpen || Math.abs(coverAngleCurrent) > COVER_SETTLE_EPS) && !reducedMotion();
+		if (readingOpen) setReadingOpen(false);
+
+		if (needsSettle) {
+			phase = 'settling-cover';
+			settleTime = 0;
+			experience.requestFrame();
+			return;
+		}
+		beginClosingTransition();
+	}
+
 	function update(dt: number): boolean {
 		if (phase === 'opening' || phase === 'closing') {
 			const duration = phase === 'opening' ? OPEN_DURATION : CLOSE_DURATION;
@@ -496,17 +727,18 @@ export function createInspect(deps: {
 			}
 			return true;
 		}
-		if (machine.mode === 'inspect' && activeRig) {
-			let unsettled = false;
-			if (Math.abs(hoverCrackAngle - hoverCrackTarget) < HOVER_CRACK_EPS) {
-				hoverCrackAngle = hoverCrackTarget;
-			} else {
-				hoverCrackAngle = damp(hoverCrackAngle, hoverCrackTarget, HOVER_CRACK_LAMBDA, dt);
-				unsettled = true;
+		if (phase === 'settling-cover') {
+			settleTime += dt;
+			const pivotUnsettled = activeRig ? updateCoverPivot(dt) : false;
+			if (!pivotUnsettled || settleTime >= COVER_SETTLE_MAX_SECONDS || !activeRig) {
+				beginClosingTransition();
 			}
-			activeRig.frontPivot.rotation.y = hoverCrackAngle;
+			return true;
+		}
+		if (machine.mode === 'inspect' && activeRig) {
+			const pivotUnsettled = updateCoverPivot(dt);
 			const controlsMoving = controls.enabled ? controls.update() : false;
-			return unsettled || controlsMoving;
+			return pivotUnsettled || controlsMoving;
 		}
 		return false;
 	}
@@ -514,6 +746,105 @@ export function createInspect(deps: {
 	function setHovered(isHovered: boolean): void {
 		if (!activeRig) return;
 		hoverCrackTarget = isHovered ? HOVER_CRACK : 0;
+		experience.requestFrame();
+	}
+
+	/**
+	 * Settled front-cover open/close toggle (§4.4) — the HUD "Open book"
+	 * button and every cover pointer gesture below funnel through this so
+	 * announcements and the eased frontPivot/pagePivot target (updateCoverPivot,
+	 * driven every frame from `update()`) always agree. No-ops if the value
+	 * isn't actually changing, so callers (e.g. close()'s defensive
+	 * `setReadingOpen(false)`) can call it unconditionally without risking a
+	 * duplicate "Closed …" announcement.
+	 */
+	function setReadingOpen(open: boolean): void {
+		if (!activeRig || readingOpen === open) return;
+		readingOpen = open;
+		announce(open ? `Opened ${activeRig.identity.title}` : `Closed ${activeRig.identity.title}`);
+		experience.requestFrame();
+	}
+
+	/**
+	 * Pointerdown on the container (Library3D.svelte forwards every pointer
+	 * event here while `machine.mode === 'inspect'`) — raycasts the active
+	 * rig's front cover and, if hit, claims the drag: disables OrbitControls
+	 * for the duration (so orbit and cover-drag can't fight over the same
+	 * pointer, mirroring close()'s own controls.enabled=false) and captures
+	 * the pointer so a fast drag that leaves the canvas bounds still
+	 * delivers move/up here. Returns whether the drag was claimed purely for
+	 * caller convenience — nothing in this module depends on the caller
+	 * checking it.
+	 */
+	function handleCoverPointerDown(event: PointerEvent): boolean {
+		if (!raycastCoverHit(event)) return false;
+		coverPointerId = event.pointerId;
+		coverDragStartClientX = event.clientX;
+		coverDragTraveled = false;
+		coverDragKindAtStart = readingOpen ? 'cover-close' : 'cover-open';
+		coverDrag = { active: true, kind: coverDragKindAtStart, progress: 0 };
+		controls.enabled = false;
+		try {
+			experience.renderer.domElement.setPointerCapture(event.pointerId);
+		} catch {
+			// Programmatic/synthetic pointer events (e.g. automated
+			// verification dispatching a pointerId the browser never
+			// registered as "active") can throw here — capture only matters
+			// for a drag that leaves the canvas bounds, it isn't load-bearing
+			// for the drag logic itself, so this is silently ignored.
+		}
+		experience.requestFrame();
+		return true;
+	}
+
+	/**
+	 * Pointermove — a no-op unless `event.pointerId` matches whatever
+	 * handleCoverPointerDown claimed. Maps horizontal travel to [0,1]
+	 * progress via bookScreenWidthPx, direction-aware per §4.4: dragging
+	 * left grows 'cover-open' progress (opening), dragging right grows
+	 * 'cover-close' progress (closing) — both drags "pull" the cover's free
+	 * edge the same screen direction the swing itself moves.
+	 */
+	function handleCoverPointerMove(event: PointerEvent): void {
+		if (coverPointerId === null || event.pointerId !== coverPointerId || !activeRig || !coverDragKindAtStart) return;
+		const deltaX = event.clientX - coverDragStartClientX;
+		if (Math.abs(deltaX) > COVER_CLICK_THRESHOLD_PX) coverDragTraveled = true;
+		const widthPx = bookScreenWidthPx(activeRig);
+		const raw = coverDragKindAtStart === 'cover-open' ? -deltaX / widthPx : deltaX / widthPx;
+		coverDrag = { active: true, kind: coverDragKindAtStart, progress: THREE.MathUtils.clamp(raw, 0, 1) };
+		experience.requestFrame();
+	}
+
+	/**
+	 * Pointerup — resolves whatever handleCoverPointerDown claimed (a no-op
+	 * if nothing was). A release with no meaningful travel is treated as a
+	 * click (toggles readingOpen, §4.4's "click on the cover toggles open");
+	 * a real drag commits past the 0.5 progress threshold or springs back
+	 * otherwise — both routed through setReadingOpen so the announcement and
+	 * the eased settle behave identically to the HUD toggle.
+	 */
+	function handleCoverPointerUp(event: PointerEvent): void {
+		if (coverPointerId === null || event.pointerId !== coverPointerId) return;
+		const traveled = coverDragTraveled;
+		const finalProgress = coverDrag.progress;
+		const kind = coverDragKindAtStart;
+		try {
+			experience.renderer.domElement.releasePointerCapture(event.pointerId);
+		} catch {
+			// See handleCoverPointerDown's matching try/catch.
+		}
+		coverPointerId = null;
+		coverDragKindAtStart = null;
+		coverDrag = { active: false, kind: null, progress: 0 };
+		controls.enabled = machine.mode === 'inspect';
+
+		if (!traveled) {
+			setReadingOpen(!readingOpen);
+		} else if (kind === 'cover-open') {
+			setReadingOpen(finalProgress > 0.5);
+		} else if (kind === 'cover-close') {
+			setReadingOpen(finalProgress <= 0.5);
+		}
 		experience.requestFrame();
 	}
 
@@ -533,6 +864,13 @@ export function createInspect(deps: {
 		forceReset,
 		get activeRig() {
 			return activeRig;
-		}
+		},
+		get readingOpen() {
+			return readingOpen;
+		},
+		setReadingOpen,
+		handleCoverPointerDown,
+		handleCoverPointerMove,
+		handleCoverPointerUp
 	};
 }

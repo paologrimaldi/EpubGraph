@@ -107,6 +107,9 @@
 
 	let selectedIndex = 0;
 	let hoveredBook: Book | null = null;
+	// Mirrors InspectController.readingOpen for the "Open book" HUD toggle's
+	// aria-pressed (see syncReadingOpen) — same pattern as the `mode` mirror.
+	let readingOpen = false;
 	let liveMessage = '';
 	let announceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -165,6 +168,7 @@
 		const themeMoving = themeDriver?.update(dt) ?? false;
 		const inspectMoving = inspect?.update(dt) ?? false;
 		syncMode();
+		syncReadingOpen();
 		// Drain a close that arrived while still 'opening' (Finding 3) the
 		// instant 'inspect' is reached — at most one frame after
 		// inspect.update() above drove finishOpening(), never waiting on a
@@ -181,6 +185,14 @@
 	// cheap no-op check on frames where nothing transitioned.
 	function syncMode(): void {
 		if (mode !== modeMachine.mode) mode = modeMachine.mode;
+	}
+
+	// Task 12: mirrors InspectController.readingOpen for the "Open book" HUD
+	// toggle's aria-pressed — same rationale as syncMode() (the controller's
+	// own state lives in a closure Svelte's compiler can't observe).
+	function syncReadingOpen(): void {
+		const value = inspect?.readingOpen ?? false;
+		if (readingOpen !== value) readingOpen = value;
 	}
 
 	function announceSelection(index: number): void {
@@ -467,6 +479,10 @@
 
 	function handlePointerMove(event: PointerEvent): void {
 		if (!carousel) return;
+		// Forwarded unconditionally in inspect mode — a no-op inside
+		// InspectController unless this pointerId is the one
+		// handlePointerDown's cover raycast already claimed (Task 12, §4.4).
+		if (modeMachine.mode === 'inspect') inspect?.handleCoverPointerMove(event);
 		if (modeMachine.mode !== 'shelf' && modeMachine.mode !== 'inspect') return;
 		const hit = raycastBook(event);
 		setHover(hit?.book ?? null, pointerToNdc(event));
@@ -488,6 +504,24 @@
 	// rotate the camera *and* close inspect.
 	function handlePointerDown(event: PointerEvent): void {
 		pointerDownClient = { x: event.clientX, y: event.clientY };
+		// Task 12 (§4.4): let InspectController's own raycast decide whether
+		// this pointerdown lands on the front cover and claim the drag if so
+		// (it owns controls.enabled/pointer-capture for the duration itself).
+		// Cover click/drag and the whole-canvas click-to-close above coexist
+		// the same way orbit-drag and click-to-close already do (Finding 1):
+		// a cover drag traveling past the threshold makes
+		// clickTraveledPastThreshold() true, so the subsequent native `click`
+		// no-ops instead of also closing inspect.
+		if (modeMachine.mode === 'inspect') inspect?.handleCoverPointerDown(event);
+	}
+
+	// Resolves whatever handleCoverPointerDown claimed (Task 12) — commit/
+	// spring-back or click-toggle, all decided inside InspectController. A
+	// no-op if no cover drag is in flight for this pointerId.
+	function handlePointerUp(event: PointerEvent): void {
+		if (modeMachine.mode !== 'inspect') return;
+		inspect?.handleCoverPointerUp(event);
+		experience?.requestFrame();
 	}
 
 	function clickTraveledPastThreshold(event: MouseEvent): boolean {
@@ -824,6 +858,7 @@
 			on:wheel={handleWheel}
 			on:pointerdown={handlePointerDown}
 			on:pointermove={handlePointerMove}
+			on:pointerup={handlePointerUp}
 			on:pointerleave={handlePointerLeave}
 			on:click={handleClick}
 			on:keydown={handleKeydown}
@@ -904,6 +939,14 @@
 			<div class="inspect-hud">
 				<button type="button" class="inspect-reset-btn" on:click={() => inspect?.resetView()}>
 					Reset view
+				</button>
+				<button
+					type="button"
+					class="inspect-reset-btn"
+					aria-pressed={readingOpen}
+					on:click={() => inspect?.setReadingOpen(!readingOpen)}
+				>
+					Open book
 				</button>
 			</div>
 		{/if}
@@ -991,6 +1034,9 @@
 		position: absolute;
 		left: 24px;
 		bottom: 28px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		pointer-events: none;
 	}
 
@@ -1010,8 +1056,19 @@
 		transition: background 0.15s ease, transform 0.1s ease;
 	}
 
+	.inspect-reset-btn[aria-pressed='true'] {
+		background: var(--gw-accent);
+		color: var(--gw-bg);
+		border-color: var(--gw-accent);
+	}
+
 	.inspect-reset-btn:hover {
 		background: var(--gw-surface-elevated);
+	}
+
+	.inspect-reset-btn[aria-pressed='true']:hover {
+		background: var(--gw-accent);
+		opacity: 0.9;
 	}
 
 	.inspect-reset-btn:active {
