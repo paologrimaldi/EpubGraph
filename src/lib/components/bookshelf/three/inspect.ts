@@ -207,6 +207,46 @@ const INSPECT_DISTANCE = new THREE.Vector3(...INSPECT_CAMERA_POSITION).distanceT
 const ORBIT_MIN_DISTANCE = INSPECT_DISTANCE * 0.72;
 
 /**
+ * Re-aims `camera` at SHELF_CAMERA_POSITION → SHELF_CAMERA_TARGET (position
+ * AND orientation) and syncs `controls.target` to match. Top-level and
+ * side-effect-free beyond its two arguments (no closure over createInspect()
+ * locals) so an invariant test can call this exact production function
+ * directly — see inspect.test.ts.
+ *
+ * Post-completion regression fix (Task 9): `new OrbitControls(...)`
+ * (constructed by Library3D.svelte just before createInspect() runs)
+ * unconditionally calls its own internal `update()` once, synchronously, as
+ * the last line of its constructor — and since `controls.target` still
+ * holds its just-constructed default of `(0,0,0)` at that point (nothing
+ * has set it to SHELF_CAMERA_TARGET yet), that stray call re-aims
+ * `camera`'s *orientation* at the origin instead of SHELF_CAMERA_TARGET.
+ * Verified by reading OrbitControls.js directly: `update()` decomposes
+ * `camera.position − controls.target` into spherical coordinates and
+ * reconstructs `camera.position = controls.target + offset` from them, so
+ * position is unaffected when target is unchanged (still `(0,0,0)` on this
+ * first call) — but it then unconditionally calls `camera.lookAt(target)`,
+ * which points the already-correctly-positioned camera at the origin
+ * instead of `(0, 1.15, 0)`. At SHELF_CAMERA_POSITION `[0, 1.45, 6.1]` that
+ * is `atan(1.45/6.1) − atan(0.3/6.1) ≈ 10.6°` of extra downtilt — measured
+ * directly off a real `OrbitControls` instance at 10.56°, matching the
+ * live-browser symptom (books cropped at the frame top, shelf board top at
+ * ~39% frame height instead of ~72%) almost exactly. Nothing else corrects
+ * this for shelf mode: the only other `controls.update()` call site (this
+ * file's own `update()` closure) is gated to `machine.mode === 'inspect'`,
+ * so a page load that never enters inspect keeps the wrong aim forever.
+ * createInspect() calls this once, immediately after tuning `controls` and
+ * before the first frame ever renders, to undo it; finishClosing() and
+ * forceReset() also call it as belt-and-suspenders so a stale
+ * `controls.target` left over from wherever the user last orbited/panned
+ * during inspect can never leak into a later shelf-mode frame.
+ */
+export function pinShelfCameraAim(camera: THREE.PerspectiveCamera, controls: OrbitControls): void {
+	camera.position.set(...SHELF_CAMERA_POSITION);
+	camera.lookAt(...SHELF_CAMERA_TARGET);
+	controls.target.set(...SHELF_CAMERA_TARGET);
+}
+
+/**
  * Deterministic shelf⇄inspect choreography (§4.3). Owns the camera and
  * `shelfStage` group outside of shelf mode (carousel.ts never touches
  * either), plus the single detached rig's root/motion transform while it's
@@ -241,6 +281,10 @@ export function createInspect(deps: {
 	controls.dampingFactor = ORBIT_DAMPING_FACTOR;
 	controls.enabled = false;
 	controls.addEventListener('change', () => experience.requestFrame());
+	// Undo OrbitControls' own constructor-time re-aim before anything ever
+	// renders — see pinShelfCameraAim's doc comment above for the full
+	// mechanism (Task 9 post-completion regression fix).
+	pinShelfCameraAim(camera, controls);
 
 	let activeRig: RigHandle | null = null;
 	let originEl: HTMLElement | null = null;
@@ -852,6 +896,13 @@ export function createInspect(deps: {
 		camera.position.copy(endCameraPos);
 		cameraTarget.copy(endCameraTarget);
 		camera.lookAt(cameraTarget);
+		// Task 9 post-completion regression fix: belt-and-suspenders — a
+		// stale controls.target left over from wherever the user last
+		// orbited/panned during inspect must never leak into shelf-mode
+		// framing on a later cycle (controls.enabled is already false by
+		// this point, via beginClosingTransition(), so this can't be
+		// clobbered by a controls.update() before the next open()).
+		controls.target.copy(cameraTarget);
 
 		experience.shelfStage.position.copy(endShelfPos);
 		currentViewOffset = endViewOffset;
@@ -935,6 +986,10 @@ export function createInspect(deps: {
 		camera.position.set(...SHELF_CAMERA_POSITION);
 		cameraTarget.set(...SHELF_CAMERA_TARGET);
 		camera.lookAt(cameraTarget);
+		// Task 9 post-completion regression fix: see finishClosing()'s
+		// matching comment — forceReset() can also fire mid-inspect (Finding
+		// 4's rig-invalidation path), so the same stale-target risk applies.
+		controls.target.copy(cameraTarget);
 
 		experience.shelfStage.position.set(0, 0, 0);
 		currentViewOffset = 0;
