@@ -9,6 +9,7 @@
 	import type { RigHandle } from './three/bookRig';
 	import type { Carousel } from './three/carousel';
 	import type { InspectController } from './three/inspect';
+	import type { CoverPipeline } from './three/coverPipeline';
 	import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 	import type { ScenePalette, Mode } from './types/experience';
 	// Pure/near-pure modules — no three.js/DOM touched at module scope — safe to
@@ -67,6 +68,7 @@
 	let lights: LightRig | null = null;
 	let carousel: Carousel | null = null;
 	let themeDriver: ReturnType<typeof createThemeDriver> | null = null;
+	let coverPipeline: CoverPipeline | null = null;
 	let raycaster: import('three').Raycaster | null = null;
 	let pointerVec: import('three').Vector2 | null = null;
 	const modeMachine = createModeMachine();
@@ -152,11 +154,19 @@
 
 	// Fired by carousel.onSelectionChange whenever the centered book changes,
 	// and called once directly after each rig rebuild to seed the initial state.
+	// Doubles as the cover pipeline's "selection changed" hook (Task 10, §5.3):
+	// re-calling hydrate() here re-scores the eager/queue window against
+	// wherever the shelf just landed, so a book that scrolls into the ±30
+	// window (or the ±4 eager window) gets picked up without waiting on the
+	// next rig rebuild — this is also what satisfies the brief's "after rig
+	// build, pipeline.hydrate" wiring, since rebuildRigs() calls this same
+	// function once at the end with the freshly-built `rigs`.
 	function handleSelectionChange(index: number): void {
 		selectedIndex = index;
 		const identity = identities[index];
 		if (identity) themeDriver?.setPalette(identity.palette, isDarkMode());
 		announceSelection(index);
+		coverPipeline?.hydrate(rigs, () => carousel?.selectedIndex ?? 0);
 		experience?.requestFrame();
 	}
 
@@ -167,14 +177,16 @@
 		// here (rather than statically imported) purely to construct the
 		// Raycaster/Vector2 used by pointer hit-testing below — carousel.ts and
 		// theme.ts need no runtime three.js import of their own.
-		const [three, experienceModule, roomModule, lightsModule, orbitModule, inspectModule] = await Promise.all([
-			import('three'),
-			import('./three/experience'),
-			import('./three/room'),
-			import('./three/lights'),
-			import('three/examples/jsm/controls/OrbitControls.js'),
-			import('./three/inspect')
-		]);
+		const [three, experienceModule, roomModule, lightsModule, orbitModule, inspectModule, coverPipelineModule] =
+			await Promise.all([
+				import('three'),
+				import('./three/experience'),
+				import('./three/room'),
+				import('./three/lights'),
+				import('three/examples/jsm/controls/OrbitControls.js'),
+				import('./three/inspect'),
+				import('./three/coverPipeline')
+			]);
 
 		// The component may have been torn down while the imports above were
 		// in flight — bail before creating anything so no renderer/canvas/
@@ -198,6 +210,18 @@
 			reducedMotion: experience.reducedMotion
 		});
 		carousel.onSelectionChange(handleSelectionChange);
+
+		coverPipeline = coverPipelineModule.createCoverPipeline(textureQuality);
+		coverPipeline.onPalette((bookId, palette) => {
+			// Re-theme live only when the extracted palette belongs to whatever
+			// book is currently centered (§5.2) — a background hydration
+			// finishing for an off-screen neighbor must not steal the scene's
+			// theme out from under the book the user is actually looking at.
+			if (rigs[selectedIndex]?.identity.id === bookId) {
+				themeDriver?.setPalette(palette, isDarkMode());
+				experience?.requestFrame();
+			}
+		});
 
 		// Bare OrbitControls instance — createInspect() owns all of its tuning
 		// (distance/polar clamps, damping) and its enabled/target lifecycle.
@@ -232,16 +256,49 @@
 		// was in flight — bail rather than build rigs for a stale book list.
 		if (destroyed || !experience || !carousel || idKey !== requestedIdKey) return;
 
-		for (const rig of rigs) rig.dispose();
-
 		const currentIdentities = identities;
-		rigs = currentIdentities.map((identity) => bookRigModule!.createBookRig(identity, textureQuality));
+		const previousSelectedId = rigs[carousel.selectedIndex]?.identity.id ?? null;
+
+		// Diff by id (Task 10, §6) instead of disposing/rebuilding every rig on
+		// any queue edit — a survivor keeps its RigHandle instance untouched,
+		// which means it also keeps whatever real-cover texture the cover
+		// pipeline already hydrated onto it (a full rebuild would silently
+		// flash every book back to its procedural look for a frame while the
+		// pipeline redundantly re-applied from cache). Only ids genuinely new
+		// to this book list get a fresh rig; only ids genuinely gone get
+		// disposed.
+		const existingById = new Map(rigs.map((rig) => [rig.identity.id, rig]));
+		const newRigs = currentIdentities.map((identity) => {
+			const survivor = existingById.get(identity.id);
+			if (survivor) {
+				existingById.delete(identity.id);
+				return survivor;
+			}
+			return bookRigModule!.createBookRig(identity, textureQuality);
+		});
+		for (const removed of existingById.values()) removed.dispose();
+
+		rigs = newRigs;
 		carousel.setRigs(rigs);
 		lastIdKey = requestedIdKey;
 
-		// setRigs() doesn't itself fire onSelectionChange (it may not represent an
-		// actual change) — seed the HUD/theme for whatever it landed on now.
-		handleSelectionChange(carousel.selectedIndex);
+		// Anchor back onto whichever book was selected before the diff, if it
+		// survived. setRigs() alone re-derives selectedIndex purely from the
+		// carousel's raw numeric `position`, which — once an id shifts ahead of
+		// the selection (e.g. a book removed earlier in the list) — can now
+		// land on a *different* book occupying the same slot index.
+		const anchorIndex =
+			previousSelectedId !== null ? rigs.findIndex((rig) => rig.identity.id === previousSelectedId) : -1;
+		if (anchorIndex >= 0 && anchorIndex !== carousel.selectedIndex) {
+			carousel.navigateTo(anchorIndex);
+		}
+
+		// setRigs() doesn't itself fire onSelectionChange (it may not represent
+		// an actual change) — seed the HUD/theme/cover-hydration for whatever it
+		// landed on now (the survivor's anchor if it survived, else setRigs's
+		// own "nearest index" fallback). This is also the "after rig build,
+		// pipeline.hydrate" call (see handleSelectionChange's doc comment).
+		handleSelectionChange(anchorIndex >= 0 ? anchorIndex : carousel.selectedIndex);
 		experience.requestFrame();
 	}
 
@@ -506,6 +563,13 @@
 			if (announceTimer) clearTimeout(announceTimer);
 			resizeObserver?.disconnect();
 			darkModeObserver?.disconnect();
+
+			// Stop the pipeline (cancels pending idle work) and free every
+			// pipeline-owned real-cover texture before the rigs that reference
+			// them go away — see coverPipeline.ts's module doc for why rig
+			// disposal below never double-frees these.
+			coverPipeline?.dispose();
+			coverPipeline = null;
 
 			// Rig textures (per-book CoverArtSet + emboss maps) aren't reachable via
 			// the generic scene traversal below — dispose them explicitly first.
