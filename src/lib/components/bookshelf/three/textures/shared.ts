@@ -7,10 +7,20 @@ import { seededRandom } from '../bookIdentity';
 const WOOD_GRAIN_SEED = 20260803;
 const WOOD_COLOR_SEED = 4711;
 
+const CLOTH_WEAVE_SEED = 8817231;
+const CLOTH_BUMP_SEED = 4291177;
+const PAPER_FIBER_SEED = 552019;
+
 let contactShadowTexture: THREE.CanvasTexture | null = null;
 let woodGrainTexture: THREE.CanvasTexture | null = null;
 let backdropGlowTexture: THREE.CanvasTexture | null = null;
 let woodColorTexture: THREE.CanvasTexture | null = null;
+let clothNormalTexture: THREE.CanvasTexture | null = null;
+let clothRoughnessTexture: THREE.CanvasTexture | null = null;
+let clothBumpTexture: THREE.CanvasTexture | null = null;
+let paperFaceTexture: THREE.CanvasTexture | null = null;
+let pageEdgeForeTexture: THREE.CanvasTexture | null = null;
+let pageEdgeHeadTailTexture: THREE.CanvasTexture | null = null;
 
 /** 128² radial gradient (white center → black edge) used as an alphaMap for baked contact shadows. */
 export function sharedContactShadowTexture(): THREE.CanvasTexture {
@@ -93,6 +103,14 @@ export function sharedBackdropGlowTexture(): THREE.CanvasTexture {
 	ctx.fillStyle = gradient;
 	ctx.fillRect(0, 0, size, size);
 
+	// Darken toward the bottom edge so the wall reads as receding into shadow at
+	// the shelf line instead of showing a bright strip between rail and board.
+	const darken = ctx.createLinearGradient(0, size * 0.55, 0, size);
+	darken.addColorStop(0, 'rgba(0, 0, 0, 0)');
+	darken.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+	ctx.fillStyle = darken;
+	ctx.fillRect(0, size * 0.55, size, size * 0.45);
+
 	backdropGlowTexture = new THREE.CanvasTexture(canvas);
 	backdropGlowTexture.colorSpace = THREE.SRGBColorSpace;
 	backdropGlowTexture.needsUpdate = true;
@@ -132,6 +150,199 @@ export function sharedWoodColorTexture(): THREE.CanvasTexture {
 	return woodColorTexture;
 }
 
+/**
+ * 256² cloth weave — normal + roughness maps derived from a shared height field
+ * (crossed `sin` weave plus seeded noise), and an independent per-pixel noise
+ * bump layer for fine grain (§5.1). All memoized singletons, tiled via
+ * `RepeatWrapping`; tint per-book via the material's `.color`, never baked here.
+ */
+export function sharedClothMaps(): {
+	normal: THREE.CanvasTexture;
+	roughness: THREE.CanvasTexture;
+	bump: THREE.CanvasTexture;
+} {
+	if (clothNormalTexture && clothRoughnessTexture && clothBumpTexture) {
+		return { normal: clothNormalTexture, roughness: clothRoughnessTexture, bump: clothBumpTexture };
+	}
+
+	const size = 256;
+	const TAU = Math.PI * 2;
+	const weaveRandom = seededRandom(CLOTH_WEAVE_SEED);
+
+	// Height field: two crossed sine waves (the weave's warp/weft) plus seeded
+	// per-texel noise. Sampled with wraparound below so the tile is seamless.
+	const height = new Float32Array(size * size);
+	let min = Infinity;
+	let max = -Infinity;
+	for (let y = 0; y < size; y++) {
+		for (let x = 0; x < size; x++) {
+			const u = x / size;
+			const v = y / size;
+			const weave = Math.sin(u * TAU * 48) + Math.sin(v * TAU * 48);
+			const h = weave + (weaveRandom() - 0.5) * 0.7;
+			height[y * size + x] = h;
+			if (h < min) min = h;
+			if (h > max) max = h;
+		}
+	}
+	const range = max - min || 1;
+
+	const normalCanvas = document.createElement('canvas');
+	normalCanvas.width = size;
+	normalCanvas.height = size;
+	const normalCtx = normalCanvas.getContext('2d')!;
+	const normalImage = normalCtx.createImageData(size, size);
+
+	const roughnessCanvas = document.createElement('canvas');
+	roughnessCanvas.width = size;
+	roughnessCanvas.height = size;
+	const roughnessCtx = roughnessCanvas.getContext('2d')!;
+	const roughnessImage = roughnessCtx.createImageData(size, size);
+
+	const strength = 1.6;
+	for (let y = 0; y < size; y++) {
+		for (let x = 0; x < size; x++) {
+			const idx = (y * size + x) * 4;
+			// Finite differences with wraparound neighbors keep the normal map
+			// seamless when repeated across the wide board/cloth faces.
+			const left = height[y * size + ((x - 1 + size) % size)];
+			const right = height[y * size + ((x + 1) % size)];
+			const up = height[((y - 1 + size) % size) * size + x];
+			const down = height[((y + 1) % size) * size + x];
+			const dx = (left - right) * strength;
+			const dy = (up - down) * strength;
+			const dz = 1;
+			const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+			normalImage.data[idx] = ((dx / len) * 0.5 + 0.5) * 255;
+			normalImage.data[idx + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+			normalImage.data[idx + 2] = ((dz / len) * 0.5 + 0.5) * 255;
+			normalImage.data[idx + 3] = 255;
+
+			const t = (height[y * size + x] - min) / range;
+			const rough = Math.round((0.85 + t * 0.15) * 255);
+			roughnessImage.data[idx] = rough;
+			roughnessImage.data[idx + 1] = rough;
+			roughnessImage.data[idx + 2] = rough;
+			roughnessImage.data[idx + 3] = 255;
+		}
+	}
+	normalCtx.putImageData(normalImage, 0, 0);
+	roughnessCtx.putImageData(roughnessImage, 0, 0);
+
+	const bumpCanvas = document.createElement('canvas');
+	bumpCanvas.width = size;
+	bumpCanvas.height = size;
+	const bumpCtx = bumpCanvas.getContext('2d')!;
+	const bumpImage = bumpCtx.createImageData(size, size);
+	const bumpRandom = seededRandom(CLOTH_BUMP_SEED);
+	for (let i = 0; i < bumpImage.data.length; i += 4) {
+		const value = 128 + Math.round((bumpRandom() - 0.5) * 20);
+		bumpImage.data[i] = value;
+		bumpImage.data[i + 1] = value;
+		bumpImage.data[i + 2] = value;
+		bumpImage.data[i + 3] = 255;
+	}
+	bumpCtx.putImageData(bumpImage, 0, 0);
+
+	clothNormalTexture = new THREE.CanvasTexture(normalCanvas);
+	clothNormalTexture.colorSpace = THREE.NoColorSpace;
+	clothNormalTexture.wrapS = THREE.RepeatWrapping;
+	clothNormalTexture.wrapT = THREE.RepeatWrapping;
+	clothNormalTexture.needsUpdate = true;
+
+	clothRoughnessTexture = new THREE.CanvasTexture(roughnessCanvas);
+	clothRoughnessTexture.colorSpace = THREE.NoColorSpace;
+	clothRoughnessTexture.wrapS = THREE.RepeatWrapping;
+	clothRoughnessTexture.wrapT = THREE.RepeatWrapping;
+	clothRoughnessTexture.needsUpdate = true;
+
+	clothBumpTexture = new THREE.CanvasTexture(bumpCanvas);
+	clothBumpTexture.colorSpace = THREE.NoColorSpace;
+	clothBumpTexture.wrapS = THREE.RepeatWrapping;
+	clothBumpTexture.wrapT = THREE.RepeatWrapping;
+	clothBumpTexture.needsUpdate = true;
+
+	return { normal: clothNormalTexture, roughness: clothRoughnessTexture, bump: clothBumpTexture };
+}
+
+/** 256² light-gray paper fiber grain on `#f5efdf` — color map for the page block/edges. */
+export function sharedPaperFaceTexture(): THREE.CanvasTexture {
+	if (paperFaceTexture) return paperFaceTexture;
+
+	const size = 256;
+	const canvas = document.createElement('canvas');
+	canvas.width = size;
+	canvas.height = size;
+	const ctx = canvas.getContext('2d')!;
+
+	ctx.fillStyle = '#f5efdf';
+	ctx.fillRect(0, 0, size, size);
+
+	const random = seededRandom(PAPER_FIBER_SEED);
+	const fiberCount = 240;
+	ctx.strokeStyle = 'rgba(150, 140, 118, 0.35)';
+	for (let i = 0; i < fiberCount; i++) {
+		const x = random() * size;
+		const y = random() * size;
+		const angle = random() * Math.PI;
+		const len = 2 + random() * 6;
+		ctx.lineWidth = 0.4 + random() * 0.5;
+		ctx.beginPath();
+		ctx.moveTo(x - Math.cos(angle) * len * 0.5, y - Math.sin(angle) * len * 0.5);
+		ctx.lineTo(x + Math.cos(angle) * len * 0.5, y + Math.sin(angle) * len * 0.5);
+		ctx.stroke();
+	}
+
+	paperFaceTexture = new THREE.CanvasTexture(canvas);
+	paperFaceTexture.colorSpace = THREE.SRGBColorSpace;
+	paperFaceTexture.wrapS = THREE.RepeatWrapping;
+	paperFaceTexture.wrapT = THREE.RepeatWrapping;
+	paperFaceTexture.needsUpdate = true;
+	return paperFaceTexture;
+}
+
+/**
+ * Fine page-edge line stacks: `fore` (256×512, 1px vertical lines alternating
+ * left→right) and `headTail` (512×256, the same alternation rotated to
+ * horizontal lines top→bottom).
+ */
+export function sharedPageEdgeTextures(): { fore: THREE.CanvasTexture; headTail: THREE.CanvasTexture } {
+	if (pageEdgeForeTexture && pageEdgeHeadTailTexture) {
+		return { fore: pageEdgeForeTexture, headTail: pageEdgeHeadTailTexture };
+	}
+
+	const colorA = '#efe6d2';
+	const colorB = '#d9cdb4';
+
+	const foreCanvas = document.createElement('canvas');
+	foreCanvas.width = 256;
+	foreCanvas.height = 512;
+	const foreCtx = foreCanvas.getContext('2d')!;
+	for (let x = 0; x < foreCanvas.width; x++) {
+		foreCtx.fillStyle = x % 2 === 0 ? colorA : colorB;
+		foreCtx.fillRect(x, 0, 1, foreCanvas.height);
+	}
+
+	const headTailCanvas = document.createElement('canvas');
+	headTailCanvas.width = 512;
+	headTailCanvas.height = 256;
+	const headTailCtx = headTailCanvas.getContext('2d')!;
+	for (let y = 0; y < headTailCanvas.height; y++) {
+		headTailCtx.fillStyle = y % 2 === 0 ? colorA : colorB;
+		headTailCtx.fillRect(0, y, headTailCanvas.width, 1);
+	}
+
+	pageEdgeForeTexture = new THREE.CanvasTexture(foreCanvas);
+	pageEdgeForeTexture.colorSpace = THREE.SRGBColorSpace;
+	pageEdgeForeTexture.needsUpdate = true;
+
+	pageEdgeHeadTailTexture = new THREE.CanvasTexture(headTailCanvas);
+	pageEdgeHeadTailTexture.colorSpace = THREE.SRGBColorSpace;
+	pageEdgeHeadTailTexture.needsUpdate = true;
+
+	return { fore: pageEdgeForeTexture, headTail: pageEdgeHeadTailTexture };
+}
+
 /** Disposes and clears the memoized shared textures (app-lifetime teardown / HMR, not per-mount). */
 export function disposeSharedTextures(): void {
 	contactShadowTexture?.dispose();
@@ -142,4 +353,16 @@ export function disposeSharedTextures(): void {
 	backdropGlowTexture = null;
 	woodColorTexture?.dispose();
 	woodColorTexture = null;
+	clothNormalTexture?.dispose();
+	clothNormalTexture = null;
+	clothRoughnessTexture?.dispose();
+	clothRoughnessTexture = null;
+	clothBumpTexture?.dispose();
+	clothBumpTexture = null;
+	paperFaceTexture?.dispose();
+	paperFaceTexture = null;
+	pageEdgeForeTexture?.dispose();
+	pageEdgeForeTexture = null;
+	pageEdgeHeadTailTexture?.dispose();
+	pageEdgeHeadTailTexture = null;
 }
