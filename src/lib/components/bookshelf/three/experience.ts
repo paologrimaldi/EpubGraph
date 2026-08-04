@@ -3,6 +3,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 
 export type FrameCallback = (dt: number, elapsed: number) => boolean;
 export type ReducedMotionCallback = (reduced: boolean) => void;
+export type ContextLostCallback = () => void;
 
 export interface Experience {
 	scene: THREE.Scene;
@@ -19,6 +20,13 @@ export interface Experience {
 	reducedMotion(): boolean;
 	/** Single-slot subscription (mirrors onFrame) fired whenever the OS setting flips. */
 	onReducedMotionChange(cb: ReducedMotionCallback | null): void;
+	/**
+	 * Single-slot subscription fired on the canvas's `webglcontextlost` event
+	 * (§4.5/§7) — the renderer is unusable once this fires. The caller is
+	 * responsible for disposing the experience and showing a fallback; this
+	 * hook only surfaces the event, it doesn't attempt context restoration.
+	 */
+	onContextLost(cb: ContextLostCallback | null): void;
 }
 
 export const SHELF_CAMERA_POSITION: [number, number, number] = [0, 1.45, 6.1];
@@ -147,6 +155,23 @@ export function createExperience(container: HTMLElement): Experience {
 		reducedMotionListener = next;
 	}
 
+	// WebGL context loss (driver crash/reset, GPU resource exhaustion, tab
+	// backgrounding on some platforms) — the renderer is dead once this fires
+	// and nothing it owns can be trusted. `preventDefault()` keeps the door
+	// open for a future `webglcontextrestored` per the WebGL spec's
+	// recommended practice, even though this app doesn't attempt to restore
+	// (it disposes and shows an HTML fallback instead, see Library3D.svelte).
+	let contextLostListener: ContextLostCallback | null = null;
+	const handleContextLost = (event: Event): void => {
+		event.preventDefault();
+		contextLostListener?.();
+	};
+	renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+
+	function onContextLost(next: ContextLostCallback | null): void {
+		contextLostListener = next;
+	}
+
 	function dispose(): void {
 		if (disposed) return;
 		disposed = true;
@@ -154,8 +179,10 @@ export function createExperience(container: HTMLElement): Experience {
 		rafId = 0;
 		cb = null;
 		reducedMotionListener = null;
+		contextLostListener = null;
 		motionQuery.removeEventListener('change', handleMotionChange);
 		document.removeEventListener('visibilitychange', handleVisibilityChange);
+		renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
 		environmentTarget.dispose();
 		pmremGenerator.dispose();
 		renderer.dispose();
@@ -175,6 +202,7 @@ export function createExperience(container: HTMLElement): Experience {
 		resize,
 		dispose,
 		reducedMotion,
-		onReducedMotionChange
+		onReducedMotionChange,
+		onContextLost
 	};
 }

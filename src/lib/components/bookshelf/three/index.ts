@@ -1,14 +1,55 @@
-export { createScene, createLighting, updateCameraSize, type SceneSetup } from './scene';
-export { createShelfMaterial, createBookSideMaterial, createBookSpineMaterial, createBookCoverMaterial, createWallMaterial, disposeTextures } from './materials';
-export { createBookMesh, getBookDimensions, disposeBookMesh } from './book';
-export { createShelfMesh, calculateShelfWidth, disposeShelfMesh, type ShelfDimensions } from './shelf';
+// Barrel for the Up Next 3D shelf's three.js modules (§6). The legacy grid
+// implementation (book.ts, bookshelf.ts, shelf.ts, scroll.ts, scene.ts,
+// interaction.ts, materials.ts) is gone — nothing outside this directory
+// depended on it (grep confirmed at deletion time), and its shared bits
+// (LibraryConfig/textureQuality) either had no surviving consumer or already
+// live inline where they're used (Library3D.svelte's `textureQuality` prop,
+// each module's own local `Quality` alias).
 export {
-	createBookshelf,
-	updateBookshelf,
-	disposeBookshelf,
-	getBookMeshById,
-	getBookMeshAtPosition,
-	type BookshelfData
-} from './bookshelf';
-export { InteractionManager, type InteractionState, type InteractionCallbacks } from './interaction';
-export { ScrollManager, type ScrollState, type ScrollCallbacks } from './scroll';
+	createExperience,
+	SHELF_CAMERA_POSITION,
+	SHELF_CAMERA_TARGET,
+	SHELF_TOP,
+	type Experience,
+	type FrameCallback,
+	type ReducedMotionCallback,
+	type ContextLostCallback
+} from './experience';
+export { createCarousel, HOVER_CRACK, type Carousel } from './carousel';
+export { createBookRig, type RigHandle } from './bookRig';
+export {
+	createInspect,
+	INSPECT_BOOK_POSITION,
+	INSPECT_CAMERA_POSITION,
+	INSPECT_CAMERA_TARGET,
+	SIDEBAR_WIDTH_PX,
+	type InspectController
+} from './inspect';
+export { blendPaletteWithMode, easeSceneColor, createThemeDriver } from './theme';
+export { createModeMachine, type ModeMachine } from './state';
+export {
+	SPACING,
+	WRAP_MIN,
+	shouldWrap,
+	wrapOffset,
+	shortestDelta,
+	clampTarget,
+	damp,
+	smoothstep,
+	smootherstep,
+	shelfPose,
+	type ShelfPose
+} from './carouselMath';
+export {
+	hashSeed,
+	seededRandom,
+	deriveSize,
+	mixHex,
+	luminance,
+	paletteFromSeed,
+	buildPalette,
+	truncateLabel,
+	buildIdentity,
+	paletteFromCover
+} from './bookIdentity';
+export { createCoverPipeline, type CoverPipeline } from './coverPipeline';

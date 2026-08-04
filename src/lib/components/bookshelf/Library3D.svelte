@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount, createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { ChevronLeft, ChevronRight, Star } from 'lucide-svelte';
 	import type { Book } from '$lib/api/commands';
+	import { getCoverImage } from '$lib/api/commands';
 	import type { Experience } from './three/experience';
 	import type { Room } from './three/room';
 	import type { LightRig } from './three/lights';
@@ -93,6 +94,16 @@
 	// build a renderer/canvas/matchMedia listener/rAF loop with no disposal
 	// handle, orphaning a WebGL context.
 	let destroyed = false;
+
+	// WebGL fallback (§4.5, §7): flips true when `createExperience` throws
+	// (no WebGL) or the canvas fires `webglcontextlost` mid-session. While
+	// true, the markup below swaps the canvas host + HUD for a plain HTML
+	// list of the queue; "Retry 3D" flips it back and re-runs initScene().
+	let webglFailed = false;
+	// bookId -> data URL, populated by loadFallbackCovers() while the
+	// fallback list is showing. A plain `let` Map, reassigned to itself after
+	// each mutation to ping Svelte 4's dirty-check (see loadFallbackCovers).
+	let fallbackCovers = new Map<number, string>();
 
 	let selectedIndex = 0;
 	let hoveredBook: Book | null = null;
@@ -201,73 +212,87 @@
 	async function initScene(): Promise<void> {
 		if (!browser || !container) return;
 
-		// Dynamic imports for Three.js (client-only). `three` itself is included
-		// here (rather than statically imported) purely to construct the
-		// Raycaster/Vector2 used by pointer hit-testing below — carousel.ts and
-		// theme.ts need no runtime three.js import of their own.
-		const [three, experienceModule, roomModule, lightsModule, orbitModule, inspectModule, coverPipelineModule] =
-			await Promise.all([
-				import('three'),
-				import('./three/experience'),
-				import('./three/room'),
-				import('./three/lights'),
-				import('three/examples/jsm/controls/OrbitControls.js'),
-				import('./three/inspect'),
-				import('./three/coverPipeline')
-			]);
+		try {
+			// Dynamic imports for Three.js (client-only). `three` itself is included
+			// here (rather than statically imported) purely to construct the
+			// Raycaster/Vector2 used by pointer hit-testing below — carousel.ts and
+			// theme.ts need no runtime three.js import of their own.
+			const [three, experienceModule, roomModule, lightsModule, orbitModule, inspectModule, coverPipelineModule] =
+				await Promise.all([
+					import('three'),
+					import('./three/experience'),
+					import('./three/room'),
+					import('./three/lights'),
+					import('three/examples/jsm/controls/OrbitControls.js'),
+					import('./three/inspect'),
+					import('./three/coverPipeline')
+				]);
 
-		// The component may have been torn down while the imports above were
-		// in flight — bail before creating anything so no renderer/canvas/
-		// listener/rAF loop is ever orphaned without a disposal handle.
-		if (destroyed) return;
+			// The component may have been torn down while the imports above were
+			// in flight — bail before creating anything so no renderer/canvas/
+			// listener/rAF loop is ever orphaned without a disposal handle.
+			if (destroyed) return;
 
-		currentDarkMode = isDarkMode();
-		raycaster = new three.Raycaster();
-		pointerVec = new three.Vector2();
+			currentDarkMode = isDarkMode();
+			raycaster = new three.Raycaster();
+			pointerVec = new three.Vector2();
 
-		experience = experienceModule.createExperience(container);
-		shelfTop = experienceModule.SHELF_TOP;
-		room = roomModule.addRoom(experience.scene, experience.shelfStage, experience.reducedMotion());
-		lights = lightsModule.addLights(experience.scene);
+			// createExperience is where WebGL context creation actually happens
+			// (`new THREE.WebGLRenderer(...)` throws synchronously if the browser
+			// can't hand back a context) — everything below this line assumes a
+			// live renderer exists, so a throw here (or anywhere below) is caught
+			// by the try/catch wrapping this whole function and routed to the
+			// same HTML-fallback path as a later `webglcontextlost` (§4.5, §7).
+			experience = experienceModule.createExperience(container);
+			experience.onContextLost(handleContextLost);
+			shelfTop = experienceModule.SHELF_TOP;
+			room = roomModule.addRoom(experience.scene, experience.shelfStage, experience.reducedMotion());
+			lights = lightsModule.addLights(experience.scene);
 
-		applyScenePalette(PLACEHOLDER_PALETTE);
+			applyScenePalette(PLACEHOLDER_PALETTE);
 
-		themeDriver = createThemeDriver({ room, lights, scene: experience.scene });
-		carousel = createCarousel(experience.shelfStage, {
-			shelfTop,
-			reducedMotion: experience.reducedMotion
-		});
-		carousel.onSelectionChange(handleSelectionChange);
+			themeDriver = createThemeDriver({ room, lights, scene: experience.scene });
+			carousel = createCarousel(experience.shelfStage, {
+				shelfTop,
+				reducedMotion: experience.reducedMotion
+			});
+			carousel.onSelectionChange(handleSelectionChange);
 
-		coverPipeline = coverPipelineModule.createCoverPipeline(textureQuality);
-		coverPipeline.onPalette((bookId, palette) => {
-			// Re-theme live only when the extracted palette belongs to whatever
-			// book is currently centered (§5.2) — a background hydration
-			// finishing for an off-screen neighbor must not steal the scene's
-			// theme out from under the book the user is actually looking at.
-			if (rigs[selectedIndex]?.identity.id === bookId) {
-				themeDriver?.setPalette(palette, isDarkMode());
-				experience?.requestFrame();
-			}
-		});
+			coverPipeline = coverPipelineModule.createCoverPipeline(textureQuality);
+			coverPipeline.onPalette((bookId, palette) => {
+				// Re-theme live only when the extracted palette belongs to whatever
+				// book is currently centered (§5.2) — a background hydration
+				// finishing for an off-screen neighbor must not steal the scene's
+				// theme out from under the book the user is actually looking at.
+				if (rigs[selectedIndex]?.identity.id === bookId) {
+					themeDriver?.setPalette(palette, isDarkMode());
+					experience?.requestFrame();
+				}
+			});
 
-		// Bare OrbitControls instance — createInspect() owns all of its tuning
-		// (distance/polar clamps, damping) and its enabled/target lifecycle.
-		controls = new orbitModule.OrbitControls(experience.camera, experience.renderer.domElement);
-		inspect = inspectModule.createInspect({
-			experience,
-			carousel,
-			machine: modeMachine,
-			controls,
-			sidebarWidthPx: () => inspectModule.SIDEBAR_WIDTH_PX,
-			reducedMotion: experience.reducedMotion,
-			announce: (msg: string) => {
-				liveMessage = msg;
-			}
-		});
+			// Bare OrbitControls instance — createInspect() owns all of its tuning
+			// (distance/polar clamps, damping) and its enabled/target lifecycle.
+			controls = new orbitModule.OrbitControls(experience.camera, experience.renderer.domElement);
+			inspect = inspectModule.createInspect({
+				experience,
+				carousel,
+				machine: modeMachine,
+				controls,
+				sidebarWidthPx: () => inspectModule.SIDEBAR_WIDTH_PX,
+				reducedMotion: experience.reducedMotion,
+				announce: (msg: string) => {
+					liveMessage = msg;
+				}
+			});
 
-		experience.onFrame(handleFrame);
-		experience.requestFrame();
+			experience.onFrame(handleFrame);
+			experience.requestFrame();
+		} catch (error) {
+			if (destroyed) return;
+			console.error('Library3D: WebGL unavailable — falling back to HTML list', error);
+			teardownExperience();
+			webglFailed = true;
+		}
 	}
 
 	// Rebuilds every rig from the current identity list and hands them to the
@@ -611,6 +636,124 @@
 		});
 	}
 
+	// Mirrors inspect.ts's forceReset() ring-walk. `modeMachine` (and
+	// `pendingClose`) are component-lifetime state that outlives a single
+	// `experience` — a WebGL-loss/init-failure fallback tears down and later
+	// rebuilds the *experience*, but without this the next successful
+	// initScene() would hand a fresh InspectController to a machine still
+	// stuck on whatever non-'shelf' mode it was in when the failure hit,
+	// which `InspectController.open()`'s `machine.can('opening')` guard would
+	// then refuse forever.
+	function resetModeMachine(): void {
+		if (modeMachine.mode === 'opening') modeMachine.to('inspect');
+		if (modeMachine.mode === 'inspect') modeMachine.to('closing');
+		if (modeMachine.mode === 'closing') modeMachine.to('shelf');
+		pendingClose = false;
+		syncMode();
+	}
+
+	// Tears down every three.js-owned resource (rigs, cover pipeline,
+	// room/lights/carousel/inspect/controls, the renderer + its scene graph)
+	// and resets every local handle back to its pre-init state. Shared by the
+	// real route-unmount path (onMount's returned cleanup) and the WebGL-loss
+	// / init-failure fallback path (handleContextLost/initScene's catch) —
+	// the latter needs the exact same disposal but must NOT set `destroyed`,
+	// since "Retry 3D" re-runs initScene() afterward.
+	function teardownExperience(): void {
+		// Stop the pipeline (cancels pending idle work) and free every
+		// pipeline-owned real-cover texture before the rigs that reference
+		// them go away — see coverPipeline.ts's module doc for why rig
+		// disposal below never double-frees these.
+		coverPipeline?.dispose();
+		coverPipeline = null;
+
+		// Rig textures (per-book CoverArtSet + emboss maps) aren't reachable via
+		// the generic scene traversal below — dispose them explicitly first.
+		for (const rig of rigs) rig.dispose();
+		rigs = [];
+		lastIdKey = null;
+
+		if (experience) {
+			disposeSceneResources(experience);
+			// Dev-only: watch this in the real Tauri app across a mount →
+			// navigate-away → remount cycle (§8 item 8) — geometries/textures
+			// should return to whatever baseline they were at before this
+			// route's first mount, confirming nothing here leaks.
+			if (import.meta.env.DEV) {
+				console.debug('Library3D: renderer.info.memory before dispose', experience.renderer.info.memory);
+			}
+			experience.dispose();
+		}
+		controls?.dispose();
+		experience = null;
+		room = null;
+		lights = null;
+		carousel = null;
+		themeDriver = null;
+		inspect = null;
+		controls = null;
+		raycaster = null;
+		pointerVec = null;
+
+		resetModeMachine();
+		dustSettleStart = null;
+		hoveredBook = null;
+	}
+
+	// Loads cover thumbnails for the HTML fallback list, one settle per book,
+	// never throwing — a rejected/absent cover just leaves that row without
+	// an <img> (§7: never let a cover failure break anything). Re-entrant:
+	// already-cached ids are skipped, so this is safe to re-run whenever
+	// `books` changes while the fallback is showing (see the reactive call
+	// below) without re-fetching covers it already has.
+	async function loadFallbackCovers(currentBooks: Book[]): Promise<void> {
+		await Promise.all(
+			currentBooks.map(async (book) => {
+				if (fallbackCovers.has(book.id)) return;
+				let src: string | null;
+				try {
+					src = await getCoverImage(book.id);
+				} catch (err) {
+					console.debug(`Library3D fallback: getCoverImage(${book.id}) rejected`, err);
+					return;
+				}
+				// Superseded by a retry or unmount while the request was in flight.
+				if (destroyed || !webglFailed || !src) return;
+				fallbackCovers.set(book.id, src);
+				fallbackCovers = fallbackCovers; // Svelte 4 Map-mutation dirty-check ping
+			})
+		);
+	}
+
+	// Re-fetches whenever the fallback is showing and `books` changes
+	// (already-cached ids are cheap no-ops, see loadFallbackCovers above).
+	$: if (webglFailed) {
+		loadFallbackCovers(books);
+	}
+
+	// `webglcontextlost` (§4.5/§7): the renderer is unusable the instant this
+	// fires. Dispose everything and drop into the HTML fallback — there's no
+	// attempt at in-place context restoration.
+	function handleContextLost(): void {
+		if (destroyed || webglFailed) return;
+		console.warn('Library3D: WebGL context lost — falling back to HTML list');
+		teardownExperience();
+		webglFailed = true;
+	}
+
+	// "Retry 3D" — flips back to the canvas markup, waits for Svelte to put
+	// `container` back in the DOM (bind:this only resolves after that patch),
+	// then re-runs the normal init path.
+	async function retryInit(): Promise<void> {
+		if (destroyed) return;
+		webglFailed = false;
+		await tick();
+		if (destroyed) return;
+		initScene().catch((error) => {
+			console.error('Library3D: retry failed to initialize the 3D experience', error);
+		});
+	}
+
 	onMount(() => {
 		initScene().catch((error) => {
 			console.error('Library3D: failed to initialize the 3D experience', error);
@@ -640,130 +783,138 @@
 			if (announceTimer) clearTimeout(announceTimer);
 			resizeObserver?.disconnect();
 			darkModeObserver?.disconnect();
-
-			// Stop the pipeline (cancels pending idle work) and free every
-			// pipeline-owned real-cover texture before the rigs that reference
-			// them go away — see coverPipeline.ts's module doc for why rig
-			// disposal below never double-frees these.
-			coverPipeline?.dispose();
-			coverPipeline = null;
-
-			// Rig textures (per-book CoverArtSet + emboss maps) aren't reachable via
-			// the generic scene traversal below — dispose them explicitly first.
-			for (const rig of rigs) rig.dispose();
-			rigs = [];
-			lastIdKey = null;
-
-			if (experience) {
-				disposeSceneResources(experience);
-				experience.dispose();
-			}
-			controls?.dispose();
-			experience = null;
-			room = null;
-			lights = null;
-			carousel = null;
-			themeDriver = null;
-			inspect = null;
-			controls = null;
-			raycaster = null;
-			pointerVec = null;
+			teardownExperience();
 		};
 	});
 </script>
 
 <div class="library-wrapper">
-	<div
-		bind:this={container}
-		class="library-container"
-		class:hovering={!!hoveredBook}
-		role="application"
-		aria-label="Up Next 3D shelf"
-		tabindex="0"
-		on:wheel={handleWheel}
-		on:pointerdown={handlePointerDown}
-		on:pointermove={handlePointerMove}
-		on:pointerleave={handlePointerLeave}
-		on:click={handleClick}
-		on:keydown={handleKeydown}
-	></div>
+	{#if !webglFailed}
+		<div
+			bind:this={container}
+			class="library-container"
+			class:hovering={!!hoveredBook}
+			role="application"
+			aria-label="Up Next 3D shelf"
+			tabindex="0"
+			on:wheel={handleWheel}
+			on:pointerdown={handlePointerDown}
+			on:pointermove={handlePointerMove}
+			on:pointerleave={handlePointerLeave}
+			on:click={handleClick}
+			on:keydown={handleKeydown}
+		></div>
 
-	{#if identities.length > 0}
-		<div class="hud-overlay" class:hud-faded={mode !== 'shelf'} inert={mode !== 'shelf'}>
-			<div class="hud-panel">
-				<div class="text-center max-w-full">
-					<h2
-						class="text-[20px] font-semibold tracking-tight leading-snug truncate max-w-full"
-						style={`font-family: ${HUD_SERIF_STACK}; color: var(--gw-fg)`}
-					>
-						{selectedBook?.title ?? ''}
-					</h2>
-					{#if selectedBook?.author}
-						<p class="text-[13px] text-muted truncate">{selectedBook.author}</p>
-					{/if}
-					<p class="mt-1 flex items-center justify-center gap-2 text-[11.5px] text-secondary">
-						<span>{selectedIndex + 1} of {books.length}</span>
-						{#if selectedBook?.rating}
-							<span class="inline-flex items-center gap-1">
-								<Star class="w-3 h-3 text-amber-400 fill-amber-400" />
-								{selectedBook.rating}
-							</span>
+		{#if identities.length > 0}
+			<div class="hud-overlay" class:hud-faded={mode !== 'shelf'} inert={mode !== 'shelf'}>
+				<div class="hud-panel">
+					<div class="text-center max-w-full">
+						<h2
+							class="text-[20px] font-semibold tracking-tight leading-snug truncate max-w-full"
+							style={`font-family: ${HUD_SERIF_STACK}; color: var(--gw-fg)`}
+						>
+							{selectedBook?.title ?? ''}
+						</h2>
+						{#if selectedBook?.author}
+							<p class="text-[13px] text-muted truncate">{selectedBook.author}</p>
 						{/if}
-					</p>
-				</div>
+						<p class="mt-1 flex items-center justify-center gap-2 text-[11.5px] text-secondary">
+							<span>{selectedIndex + 1} of {books.length}</span>
+							{#if selectedBook?.rating}
+								<span class="inline-flex items-center gap-1">
+									<Star class="w-3 h-3 text-amber-400 fill-amber-400" />
+									{selectedBook.rating}
+								</span>
+							{/if}
+						</p>
+					</div>
 
-				<div class="hud-controls">
-					<button
-						type="button"
-						class="hud-round-btn"
-						aria-label="Previous book"
-						disabled={books.length < 2}
-						on:click={() => navigate(-1)}
-					>
-						<ChevronLeft class="w-4 h-4" />
-					</button>
-					<button
-						type="button"
-						class="hud-inspect-btn"
-						disabled={mode !== 'shelf'}
-						aria-label="Inspect selected book"
-						on:click={openInspect}
-					>
-						Inspect
-					</button>
-					<button
-						type="button"
-						class="hud-round-btn"
-						aria-label="Next book"
-						disabled={books.length < 2}
-						on:click={() => navigate(1)}
-					>
-						<ChevronRight class="w-4 h-4" />
-					</button>
-				</div>
-
-				<div class="hud-markers" role="tablist" aria-label="Book selector">
-					{#each books as book, i (book.id)}
+					<div class="hud-controls">
 						<button
 							type="button"
-							role="tab"
-							class="hud-marker"
-							class:selected={i === selectedIndex}
-							aria-selected={i === selectedIndex}
-							aria-label={`Select book ${i + 1}: ${book.title}`}
-							on:click={() => navigateTo(i)}
-						></button>
-					{/each}
+							class="hud-round-btn"
+							aria-label="Previous book"
+							disabled={books.length < 2}
+							on:click={() => navigate(-1)}
+						>
+							<ChevronLeft class="w-4 h-4" />
+						</button>
+						<button
+							type="button"
+							class="hud-inspect-btn"
+							disabled={mode !== 'shelf'}
+							aria-label="Inspect selected book"
+							on:click={openInspect}
+						>
+							Inspect
+						</button>
+						<button
+							type="button"
+							class="hud-round-btn"
+							aria-label="Next book"
+							disabled={books.length < 2}
+							on:click={() => navigate(1)}
+						>
+							<ChevronRight class="w-4 h-4" />
+						</button>
+					</div>
+
+					<div class="hud-markers" role="tablist" aria-label="Book selector">
+						{#each books as book, i (book.id)}
+							<button
+								type="button"
+								role="tab"
+								class="hud-marker"
+								class:selected={i === selectedIndex}
+								aria-selected={i === selectedIndex}
+								aria-label={`Select book ${i + 1}: ${book.title}`}
+								on:click={() => navigateTo(i)}
+							></button>
+						{/each}
+					</div>
 				</div>
 			</div>
-		</div>
-	{/if}
+		{/if}
 
-	{#if mode === 'inspect'}
-		<div class="inspect-hud">
-			<button type="button" class="inspect-reset-btn" on:click={() => inspect?.resetView()}>
-				Reset view
-			</button>
+		{#if mode === 'inspect'}
+			<div class="inspect-hud">
+				<button type="button" class="inspect-reset-btn" on:click={() => inspect?.resetView()}>
+					Reset view
+				</button>
+			</div>
+		{/if}
+	{:else}
+		<!-- WebGL fallback (§4.5, §7): shown when createExperience() threw (no
+		     WebGL) or the canvas fired webglcontextlost. Plain HTML list of the
+		     queue — no three.js involved — plus a retry. -->
+		<div class="webgl-fallback">
+			<div class="webgl-fallback-panel">
+				<p class="webgl-fallback-message">
+					3D view isn't available right now — here's your reading queue as a list.
+				</p>
+				{#if books.length > 0}
+					<ul class="webgl-fallback-list">
+						{#each books as book (book.id)}
+							<li class="webgl-fallback-item">
+								{#if fallbackCovers.get(book.id)}
+									<img class="webgl-fallback-cover" src={fallbackCovers.get(book.id)} alt={book.title} />
+								{:else}
+									<div class="webgl-fallback-cover webgl-fallback-cover-placeholder" aria-hidden="true"></div>
+								{/if}
+								<div class="webgl-fallback-meta">
+									<p class="webgl-fallback-title">{book.title}</p>
+									{#if book.author}
+										<p class="webgl-fallback-author">{book.author}</p>
+									{/if}
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<button type="button" class="btn-primary webgl-fallback-retry" on:click={retryInit}>
+					Retry 3D
+				</button>
+			</div>
 		</div>
 	{/if}
 
@@ -966,6 +1117,94 @@
 	.hud-marker:focus-visible {
 		outline: 2px solid var(--gw-accent);
 		outline-offset: 2px;
+	}
+
+	.webgl-fallback {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow-y: auto;
+		padding: 24px;
+		background: var(--gw-bg);
+	}
+
+	.webgl-fallback-panel {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 16px;
+		width: 100%;
+		max-width: 420px;
+	}
+
+	.webgl-fallback-message {
+		font-size: 13px;
+		color: var(--gw-fg-muted);
+		text-align: center;
+	}
+
+	.webgl-fallback-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		width: 100%;
+		max-height: 55vh;
+		overflow-y: auto;
+		border: 0.5px solid var(--gw-border);
+		border-radius: 12px;
+		background: var(--gw-surface);
+	}
+
+	.webgl-fallback-item {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 12px;
+		border-bottom: 0.5px solid var(--gw-border);
+	}
+
+	.webgl-fallback-item:last-child {
+		border-bottom: none;
+	}
+
+	.webgl-fallback-cover {
+		flex: 0 0 auto;
+		width: 32px;
+		height: 46px;
+		border-radius: 3px;
+		object-fit: cover;
+		background: var(--gw-surface-tint);
+	}
+
+	.webgl-fallback-cover-placeholder {
+		border: 1px solid var(--gw-border);
+	}
+
+	.webgl-fallback-meta {
+		min-width: 0;
+	}
+
+	.webgl-fallback-title {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--gw-fg);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.webgl-fallback-author {
+		font-size: 11.5px;
+		color: var(--gw-fg-muted);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.webgl-fallback-retry {
+		flex: 0 0 auto;
 	}
 
 	.sr-only {
