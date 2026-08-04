@@ -1,4 +1,4 @@
-export const SPACING = 1.18;
+export const SPACING = 1.34;
 export const WRAP_MIN = 5;
 
 export const shouldWrap = (count: number) => count >= WRAP_MIN;

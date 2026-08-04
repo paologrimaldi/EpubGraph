@@ -109,7 +109,22 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 
 	// ---- material recipes (§5.1) ----
 
-	/** Cloth: shared weave normal/roughness/bump, normalScale 0.3, sheen 0.27 tinted foil. */
+	/**
+	 * Cloth: shared weave normal/roughness/bump, tiled fine (see `sharedClothMaps`)
+	 * so the weave whispers rather than reading as burlap — normalScale kept ≤0.18
+	 * and bumpScale ≤0.002 so the fine tiling doesn't sharpen back into a loud
+	 * per-thread relief. `sheen` is a broad, low-frequency Charlie-lobe highlight
+	 * tinted with `sheenColor` — at the brief's original 0.27, tinted with the
+	 * (often pale) foil color and lit by five studio lights + IBL, it veiled the
+	 * whole cloth ground in a wash of the foil color instead of reading as a
+	 * subtle fabric sheen (root cause of the "washed cloth" finding — confirmed
+	 * by A/B against a build with sheen zeroed: the wash comes from `sheen`,
+	 * dropping to zero visibly restored saturated cloth color, and pushing
+	 * `envMapIntensity` further below 0.35 made no further visible difference,
+	 * so it's kept at 0.35 rather than driven needlessly low). A small residual
+	 * sheen (0.06) is kept — not zeroed outright — so the brief's "tinted foil"
+	 * fabric character still reads at a whisper instead of disappearing.
+	 */
 	function clothMaterial(
 		tint: THREE.ColorRepresentation,
 		extra: Partial<THREE.MeshPhysicalMaterialParameters> = {}
@@ -118,13 +133,14 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 			new THREE.MeshPhysicalMaterial({
 				color: tint,
 				normalMap: clothMaps.normal,
-				normalScale: new THREE.Vector2(0.3, 0.3),
+				normalScale: new THREE.Vector2(0.16, 0.16),
 				roughnessMap: clothMaps.roughness,
 				roughness: 1,
 				bumpMap: clothMaps.bump,
 				bumpScale: 0.0012,
-				sheen: 0.27,
+				sheen: 0.06,
 				sheenColor: new THREE.Color(foil),
+				envMapIntensity: 0.35,
 				...extra
 			})
 		);
@@ -135,10 +151,18 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 		map: THREE.Texture,
 		extra: Partial<THREE.MeshPhysicalMaterialParameters> = {}
 	): THREE.MeshPhysicalMaterial {
-		return clothMaterial(0xffffff, { map, roughness: 0.58, sheen: 0.12, ...extra });
+		return clothMaterial(0xffffff, { map, roughness: 0.58, sheen: 0.02, ...extra });
 	}
 
-	/** Foil: metalness .9, roughness .21, clearcoat .14, alpha from the foil artwork, emboss bump from the same texture. */
+	/**
+	 * Foil: metalness .9, roughness .21, clearcoat .14, alpha from the foil
+	 * artwork, emboss bump from the same texture. The emboss source is a flat
+	 * black/white cutout (no gradient), so at the brief's 0.0018 bumpScale the
+	 * hard alpha edge read as a bright/dark halo doubling every foil-stamped
+	 * letterform into a ghosted outline — legible only as a smear at shelf
+	 * distance. Cutting bumpScale to a quarter keeps the stamped-relief cue at
+	 * grazing light without breaking up the glyph silhouettes.
+	 */
 	function foilMaterial(alphaTexture: THREE.CanvasTexture, embossName: string): THREE.MeshPhysicalMaterial {
 		const emboss = makeEmbossFrom(alphaTexture, embossName);
 		embossTextures.push(emboss);
@@ -150,7 +174,7 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 				clearcoat: 0.14,
 				alphaMap: alphaTexture,
 				bumpMap: emboss,
-				bumpScale: 0.0018,
+				bumpScale: 0.00045,
 				depthWrite: false,
 				polygonOffset: true,
 				polygonOffsetFactor: -2,

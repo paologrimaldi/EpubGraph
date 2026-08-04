@@ -219,7 +219,10 @@ export function sharedClothMaps(): {
 			normalImage.data[idx + 3] = 255;
 
 			const t = (height[y * size + x] - min) / range;
-			const rough = Math.round((0.85 + t * 0.15) * 255);
+			// Flattened toward the mean (0.88–0.98, not 0.85–1.0) — at fine tiling
+			// (8×12 repeats across a board) the earlier wider swing produced a
+			// visible checkered sheen instead of an even, whispering weave.
+			const rough = Math.round((0.88 + t * 0.1) * 255);
 			roughnessImage.data[idx] = rough;
 			roughnessImage.data[idx + 1] = rough;
 			roughnessImage.data[idx + 2] = rough;
@@ -244,22 +247,35 @@ export function sharedClothMaps(): {
 	}
 	bumpCtx.putImageData(bumpImage, 0, 0);
 
+	// Fine tiling: these maps are UV-mapped across a whole board face (roughly
+	// [0,1] per plane, per `roundedPlaneGeometry`'s remap and RoundedBoxGeometry's
+	// own per-face UVs), so a 1×1 repeat stretches this single weave cycle over
+	// the entire board — reading as coarse burlap instead of a fine, barely-visible
+	// weave. Tiling it 8× across width / 12× vertically brings each thread back
+	// down to a whisper at shelf viewing distance. Consumed only by book rig
+	// materials (cloth/art/spine/lining), so it's safe to set globally here.
+	const CLOTH_REPEAT_X = 8;
+	const CLOTH_REPEAT_Y = 12;
+
 	clothNormalTexture = new THREE.CanvasTexture(normalCanvas);
 	clothNormalTexture.colorSpace = THREE.NoColorSpace;
 	clothNormalTexture.wrapS = THREE.RepeatWrapping;
 	clothNormalTexture.wrapT = THREE.RepeatWrapping;
+	clothNormalTexture.repeat.set(CLOTH_REPEAT_X, CLOTH_REPEAT_Y);
 	clothNormalTexture.needsUpdate = true;
 
 	clothRoughnessTexture = new THREE.CanvasTexture(roughnessCanvas);
 	clothRoughnessTexture.colorSpace = THREE.NoColorSpace;
 	clothRoughnessTexture.wrapS = THREE.RepeatWrapping;
 	clothRoughnessTexture.wrapT = THREE.RepeatWrapping;
+	clothRoughnessTexture.repeat.set(CLOTH_REPEAT_X, CLOTH_REPEAT_Y);
 	clothRoughnessTexture.needsUpdate = true;
 
 	clothBumpTexture = new THREE.CanvasTexture(bumpCanvas);
 	clothBumpTexture.colorSpace = THREE.NoColorSpace;
 	clothBumpTexture.wrapS = THREE.RepeatWrapping;
 	clothBumpTexture.wrapT = THREE.RepeatWrapping;
+	clothBumpTexture.repeat.set(CLOTH_REPEAT_X, CLOTH_REPEAT_Y);
 	clothBumpTexture.needsUpdate = true;
 
 	return { normal: clothNormalTexture, roughness: clothRoughnessTexture, bump: clothBumpTexture };
