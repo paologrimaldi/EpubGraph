@@ -5,10 +5,12 @@ import { seededRandom } from '../bookIdentity';
 // studio fixture (not per-book), so a fixed seed just needs to be stable and
 // reproducible across sessions.
 const WOOD_GRAIN_SEED = 20260803;
+const WOOD_COLOR_SEED = 4711;
 
 let contactShadowTexture: THREE.CanvasTexture | null = null;
 let woodGrainTexture: THREE.CanvasTexture | null = null;
 let backdropGlowTexture: THREE.CanvasTexture | null = null;
+let woodColorTexture: THREE.CanvasTexture | null = null;
 
 /** 128² radial gradient (white center → black edge) used as an alphaMap for baked contact shadows. */
 export function sharedContactShadowTexture(): THREE.CanvasTexture {
@@ -97,6 +99,39 @@ export function sharedBackdropGlowTexture(): THREE.CanvasTexture {
 	return backdropGlowTexture;
 }
 
+/** 256² dark wood color map — seeded horizontal grain streaks alternating light/dark walnut tones. */
+export function sharedWoodColorTexture(): THREE.CanvasTexture {
+	if (woodColorTexture) return woodColorTexture;
+
+	const size = 256;
+	const canvas = document.createElement('canvas');
+	canvas.width = size;
+	canvas.height = size;
+	const ctx = canvas.getContext('2d')!;
+
+	ctx.fillStyle = '#2a1810';
+	ctx.fillRect(0, 0, size, size);
+
+	const random = seededRandom(WOOD_COLOR_SEED);
+	const streakCount = 40;
+	ctx.globalAlpha = 0.5;
+	for (let i = 0; i < streakCount; i++) {
+		const y = random() * size;
+		const streakHeight = 1 + random() * 2;
+		ctx.fillStyle = random() < 0.5 ? '#1f0f08' : '#3a2418';
+		ctx.fillRect(0, y, size, streakHeight);
+	}
+	ctx.globalAlpha = 1;
+
+	woodColorTexture = new THREE.CanvasTexture(canvas);
+	woodColorTexture.colorSpace = THREE.SRGBColorSpace;
+	woodColorTexture.wrapS = THREE.RepeatWrapping;
+	woodColorTexture.wrapT = THREE.RepeatWrapping;
+	woodColorTexture.repeat.set(7, 1);
+	woodColorTexture.needsUpdate = true;
+	return woodColorTexture;
+}
+
 /** Disposes and clears the memoized shared textures (app-lifetime teardown / HMR, not per-mount). */
 export function disposeSharedTextures(): void {
 	contactShadowTexture?.dispose();
@@ -105,4 +140,6 @@ export function disposeSharedTextures(): void {
 	woodGrainTexture = null;
 	backdropGlowTexture?.dispose();
 	backdropGlowTexture = null;
+	woodColorTexture?.dispose();
+	woodColorTexture = null;
 }

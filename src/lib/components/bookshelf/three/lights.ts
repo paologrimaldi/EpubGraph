@@ -13,17 +13,19 @@ const RIG_AIM = new THREE.Vector3(0, 1.4, 0);
 export function addLights(scene: THREE.Scene): LightRig {
 	RectAreaLightUniformsLib.init();
 
-	const hemisphere = new THREE.HemisphereLight(0xfff8e8, 0x5b4030, 0.56);
+	const hemisphere = new THREE.HemisphereLight(0xfff8e8, 0x5b4030, 0.42);
 	scene.add(hemisphere);
 
 	const key = new THREE.DirectionalLight(0xffe8c2, 1.42);
 	key.position.set(-4.6, 7.4, 5.8);
 	key.castShadow = true;
 	key.shadow.mapSize.set(2048, 2048);
-	key.shadow.camera.left = -6;
-	key.shadow.camera.right = 6;
+	// Widened to cover the 17-unit board's floor shadow — the old ±6 box
+	// clipped it, leaving a visible diagonal boundary on the floor.
+	key.shadow.camera.left = -9;
+	key.shadow.camera.right = 9;
 	key.shadow.camera.top = 6;
-	key.shadow.camera.bottom = -1.5;
+	key.shadow.camera.bottom = -3;
 	key.shadow.camera.near = 1;
 	key.shadow.camera.far = 18;
 	key.shadow.bias = -0.00018;
@@ -36,7 +38,7 @@ export function addLights(scene: THREE.Scene): LightRig {
 	scene.add(fill);
 
 	// RectAreaLight — cloth softbox (key fill from camera-left).
-	const softKey = new THREE.RectAreaLight(0xffe8c2, 5.4, 4.8, 5.6);
+	const softKey = new THREE.RectAreaLight(0xffe8c2, 4.2, 4.8, 5.6);
 	softKey.position.set(-3.2, 5.5, 4.6);
 	softKey.lookAt(0, 1.45, 0);
 	scene.add(softKey);

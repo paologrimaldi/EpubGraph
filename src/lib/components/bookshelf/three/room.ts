@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { seededRandom } from './bookIdentity';
 import { SHELF_TOP } from './experience';
-import { sharedBackdropGlowTexture, sharedContactShadowTexture, sharedWoodGrainTexture } from './textures/shared';
+import {
+	sharedBackdropGlowTexture,
+	sharedContactShadowTexture,
+	sharedWoodColorTexture,
+	sharedWoodGrainTexture
+} from './textures/shared';
 
 export interface Room {
 	themeTargets: {
@@ -40,9 +45,11 @@ export function addRoom(scene: THREE.Scene, shelfStage: THREE.Group, reducedMoti
 	scene.add(backdrop);
 
 	// Walnut shelf board (top = SHELF_TOP), shared by the board, rail and uprights.
+	// color is white so the dark wood color map carries the actual tone.
 	const walnutMaterial = new THREE.MeshStandardMaterial({
-		color: '#3a2118',
+		color: '#ffffff',
 		roughness: 0.82,
+		map: sharedWoodColorTexture(),
 		bumpMap: sharedWoodGrainTexture(),
 		bumpScale: 0.015
 	});

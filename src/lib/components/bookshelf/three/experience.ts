@@ -50,7 +50,7 @@ export function createExperience(container: HTMLElement): Experience {
 	const environmentScene = new RoomEnvironment();
 	const environmentTarget = pmremGenerator.fromScene(environmentScene, 0.04);
 	scene.environment = environmentTarget.texture;
-	scene.environmentIntensity = 0.72;
+	scene.environmentIntensity = 0.5;
 	environmentScene.dispose();
 
 	scene.fog = new THREE.FogExp2(new THREE.Color('#efe7d8'), 0.027);
