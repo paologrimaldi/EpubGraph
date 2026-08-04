@@ -4,9 +4,10 @@ import type { Pose } from '../types/experience';
 import type { Experience } from './experience';
 import { SHELF_CAMERA_POSITION, SHELF_CAMERA_TARGET, SHELF_TOP } from './experience';
 import type { Carousel } from './carousel';
+import { HOVER_CRACK } from './carousel';
 import type { RigHandle } from './bookRig';
 import type { ModeMachine } from './state';
-import { smootherstep, shelfPose } from './carouselMath';
+import { smootherstep, shelfPose, damp } from './carouselMath';
 import { capturePose, lerpPose, inspectScale, type PoseTargets } from './inspectMath';
 
 export interface InspectController {
@@ -14,6 +15,12 @@ export interface InspectController {
 	close(): void; // inspect→closing
 	update(dt: number): boolean; // advances transitions, true while active
 	resetView(): void;
+	// Cover hover-crack ownership while a rig is detached for inspect (shelf
+	// mode's hover keeps going through Carousel.setHovered instead — see
+	// Library3D.svelte's mode-branched setHover). `isHovered` is just "is the
+	// pointer over the (single) inspected book" — no bookId matching needed,
+	// there's only ever one candidate.
+	setHovered(isHovered: boolean): void;
 	readonly activeRig: RigHandle | null;
 }
 
@@ -42,6 +49,13 @@ const ORBIT_MAX_DISTANCE = 7.2;
 const ORBIT_MIN_POLAR = 0.24 * Math.PI;
 const ORBIT_MAX_POLAR = 0.76 * Math.PI;
 const ORBIT_DAMPING_FACTOR = 0.08;
+
+// Cover hover-crack easing while a rig is detached for inspect — same feel
+// as carousel.ts's RIG_LAMBDA/EPS_ANGLE (kept local rather than imported so
+// inspect.ts's own tuning can drift from shelf-mode's independently; only
+// the crack angle itself (HOVER_CRACK) is shared).
+const HOVER_CRACK_LAMBDA = 12;
+const HOVER_CRACK_EPS = 0.0004;
 
 const IDENTITY_POSE: Pose = { position: [0, 0, 0], quaternion: [0, 0, 0, 1], scale: 1 };
 
@@ -87,6 +101,11 @@ export function createInspect(deps: {
 	let phase: 'idle' | 'opening' | 'closing' = 'idle';
 	let transitionTime = 0;
 	let currentViewOffset = 0;
+
+	// Cover hover-crack state for the detached rig (Finding 2, Task 9 review):
+	// owned entirely here instead of routing through Carousel.setHovered.
+	let hoverCrackTarget = 0;
+	let hoverCrackAngle = 0;
 
 	// inspect.ts is the sole owner of camera orientation outside shelf mode
 	// (shelf browsing never moves the camera) — this tracks "wherever the
@@ -272,6 +291,8 @@ export function createInspect(deps: {
 
 		rig.contactShadow.visible = true;
 		rig.setOpacity(1);
+		hoverCrackTarget = 0;
+		hoverCrackAngle = 0;
 
 		machine.to('shelf');
 		announce(`${rig.identity.title} returned to the shelf`);
@@ -327,6 +348,14 @@ export function createInspect(deps: {
 		carousel.setDetachedRig(rig);
 		experience.scene.attach(rig.root);
 		rig.contactShadow.visible = false;
+
+		// A book can arrive here still cover-cracked from shelf-mode hover
+		// (the pointer that clicked it was, by definition, hovering it) — reset
+		// to flat rather than carrying that angle into a transition this
+		// controller doesn't otherwise drive frame-by-frame while opening.
+		hoverCrackTarget = 0;
+		hoverCrackAngle = 0;
+		rig.frontPivot.rotation.y = 0;
 
 		machine.to('opening');
 		phase = 'opening';
@@ -388,10 +417,25 @@ export function createInspect(deps: {
 			}
 			return true;
 		}
-		if (machine.mode === 'inspect' && controls.enabled) {
-			return controls.update();
+		if (machine.mode === 'inspect' && activeRig) {
+			let unsettled = false;
+			if (Math.abs(hoverCrackAngle - hoverCrackTarget) < HOVER_CRACK_EPS) {
+				hoverCrackAngle = hoverCrackTarget;
+			} else {
+				hoverCrackAngle = damp(hoverCrackAngle, hoverCrackTarget, HOVER_CRACK_LAMBDA, dt);
+				unsettled = true;
+			}
+			activeRig.frontPivot.rotation.y = hoverCrackAngle;
+			const controlsMoving = controls.enabled ? controls.update() : false;
+			return unsettled || controlsMoving;
 		}
 		return false;
+	}
+
+	function setHovered(isHovered: boolean): void {
+		if (!activeRig) return;
+		hoverCrackTarget = isHovered ? HOVER_CRACK : 0;
+		experience.requestFrame();
 	}
 
 	function resetView(): void {
@@ -406,6 +450,7 @@ export function createInspect(deps: {
 		close,
 		update,
 		resetView,
+		setHovered,
 		get activeRig() {
 			return activeRig;
 		}

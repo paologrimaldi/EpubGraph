@@ -13,10 +13,12 @@ export interface Carousel {
 	update(dt: number, elapsed: number): boolean; // damps everything; true if still moving
 	snapAll(): void; // reduced-motion / post-transition sync
 	onSelectionChange(cb: (index: number) => void): void;
-	// Pulls a rig out of shelf-stage posing while inspect.ts owns its root/
-	// motion/opacity transform (opening/inspect/closing) — its cover-crack
-	// hover channel keeps running here (see update()) so hovering the
-	// inspected book still cracks it open, matching shelf-mode behavior.
+	// Pulls a rig out of shelf-stage posing while inspect.ts owns its entire
+	// transform (root/motion/opacity/frontPivot cover-crack) for the duration
+	// of opening/inspect/closing — carousel.ts skips it outright (see
+	// update()). Hover during inspect is driven by InspectController.setHovered,
+	// not carousel.setHovered (Task 9 review finding: hover input must not
+	// bypass the mode guard into carousel while inspect owns the rig).
 	// `null` re-includes whatever rig was detached in normal shelf posing.
 	setDetachedRig(rig: RigHandle | null): void;
 }
@@ -25,7 +27,10 @@ export interface Carousel {
 const POSITION_LAMBDA = 9.5;
 const POSITION_SNAP_EPS = 0.0005;
 const RIG_LAMBDA = 12;
-const HOVER_CRACK = -0.085;
+// Exported so inspect.ts's own cover-crack easing (owned there while a rig
+// is detached — see setDetachedRig's doc above) shares the same tuned angle
+// instead of duplicating the magic number.
+export const HOVER_CRACK = -0.085;
 const BOB_FREQUENCY = 0.72;
 const BOB_AMPLITUDE = 0.012;
 const HOVER_LIFT = 0.035;
@@ -237,18 +242,9 @@ export function createCarousel(
 			const rig = runtime.rig;
 
 			if (rig === detachedRig) {
-				// root/motion/opacity/contact-shadow are owned by inspect.ts for
-				// the duration of the detach — only the cover-crack hinge still
-				// lives here so hovering the inspected book still cracks it open.
-				const hovered = !reduced && hoveredBookId !== null && rig.identity.id === hoveredBookId;
-				if (reduced) {
-					runtime.frontRotY = 0;
-				} else {
-					const [v, s] = ease(runtime.frontRotY, hovered ? HOVER_CRACK : 0, dt, EPS_ANGLE);
-					runtime.frontRotY = v;
-					if (!s) unsettled = true;
-				}
-				rig.frontPivot.rotation.y = runtime.frontRotY;
+				// inspect.ts owns this rig's entire transform (root/motion/
+				// opacity/frontPivot cover-crack) for the duration of the
+				// detach — carousel.ts doesn't touch it at all.
 				continue;
 			}
 

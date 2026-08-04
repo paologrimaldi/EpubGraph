@@ -323,8 +323,20 @@
 		return book ? { book, index } : null;
 	}
 
+	// Mode-branched, not a plain `!== 'shelf'` guard like every other input
+	// (click/keydown/wheel): hover has a legitimate job in *both* shelf mode
+	// (drives Carousel.setHovered — the lift/tilt/crack-on-hover shelf feel)
+	// and inspect mode (drives InspectController.setHovered — cover
+	// hover-crack on the single inspected book, per the Task 9 brief's step 5
+	// manual-verification criteria). It's inert only during opening/closing,
+	// same as click/keydown are during those transitional modes.
 	function setHover(book: Book | null, ndc: { x: number; y: number }): void {
-		carousel?.setHovered(book?.id ?? null, ndc);
+		if (modeMachine.mode === 'shelf') {
+			carousel?.setHovered(book?.id ?? null, ndc);
+		} else if (modeMachine.mode === 'inspect') {
+			const activeId = inspect?.activeRig?.identity.id ?? null;
+			inspect?.setHovered(!!book && book.id === activeId);
+		}
 		if (hoveredBook?.id !== book?.id) {
 			hoveredBook = book;
 			dispatch('bookHover', book);
@@ -333,6 +345,7 @@
 
 	function handlePointerMove(event: PointerEvent): void {
 		if (!carousel) return;
+		if (modeMachine.mode !== 'shelf' && modeMachine.mode !== 'inspect') return;
 		const hit = raycastBook(event);
 		setHover(hit?.book ?? null, pointerToNdc(event));
 		experience?.requestFrame();
@@ -340,6 +353,7 @@
 
 	function handlePointerLeave(): void {
 		if (!carousel) return;
+		if (modeMachine.mode !== 'shelf' && modeMachine.mode !== 'inspect') return;
 		setHover(null, { x: 0, y: 0 });
 		experience?.requestFrame();
 	}

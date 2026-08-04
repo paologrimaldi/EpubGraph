@@ -250,7 +250,7 @@
 </svelte:head>
 
 {#if mounted}
-	<div style="width:100vw;height:100vh;position:relative">
+	<div style="width:100%;height:100vh;position:relative">
 		<Library3D books={FAKE_BOOKS} textureQuality="medium" bind:selectedBookId />
 
 		<!-- Minimal fake sidebar — verifies the inspect view-offset/composition
