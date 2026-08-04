@@ -94,3 +94,49 @@ export function buildIdentity(book: Book): BookIdentity {
 		description: book.description
 	};
 }
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+	r /= 255; g /= 255; b /= 255;
+	const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+	if (max === min) return [0, 0, l];
+	const d = max - min;
+	const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+	let h = 0;
+	if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+	else if (max === g) h = ((b - r) / d + 2) / 6;
+	else h = ((r - g) / d + 4) / 6;
+	return [h, s, l];
+}
+
+export function paletteFromCover(pixels: Uint8ClampedArray): BookPalette | null {
+	// 12 hue × 4 sat × 4 light coarse histogram; skip near-white/black/transparent
+	const bins = new Map<number, { n: number; r: number; g: number; b: number; s: number }>();
+	let usable = 0;
+	for (let i = 0; i < pixels.length; i += 4) {
+		if (pixels[i + 3] < 200) continue;
+		const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+		const [h, s, l] = rgbToHsl(r, g, b);
+		if (l > 0.92 || l < 0.08) continue;
+		usable++;
+		const key = Math.floor(h * 12) * 16 + Math.floor(s * 3.999) * 4 + Math.floor(l * 3.999);
+		const bin = bins.get(key) ?? { n: 0, r: 0, g: 0, b: 0, s: 0 };
+		bin.n++; bin.r += r; bin.g += g; bin.b += b; bin.s += s;
+		bins.set(key, bin);
+	}
+	if (usable < pixels.length / 4 * 0.2) return null;
+	const sorted = [...bins.entries()].sort((a, b) => b[1].n - a[1].n);
+	const toHex = (bin: { n: number; r: number; g: number; b: number }) =>
+		'#' + [bin.r, bin.g, bin.b].map((v) => Math.round(v / bin.n).toString(16).padStart(2, '0')).join('');
+	const dominant = sorted[0][1];
+	const domHue = Math.floor(sorted[0][0] / 16);
+	// accent: most populous bin ≥ 2 hue-bins away, else most saturated remaining, else foil from mix
+	const away = sorted.slice(1).find(([k]) => {
+		const hue = Math.floor(k / 16);
+		const dist = Math.min(Math.abs(hue - domHue), 12 - Math.abs(hue - domHue));
+		return dist >= 2;
+	});
+	const accentBin = away?.[1] ?? sorted.slice(1).sort((a, b) => b[1].s / b[1].n - a[1].s / a[1].n)[0]?.[1];
+	const cloth = toHex(dominant);
+	const foil = accentBin ? mixHex(toHex(accentBin), '#f1e3c0', 0.25) : mixHex(cloth, '#f1e3c0', 0.6);
+	return buildPalette(cloth, foil);
+}
