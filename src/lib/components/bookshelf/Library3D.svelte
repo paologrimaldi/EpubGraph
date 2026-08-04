@@ -5,7 +5,13 @@
 	import type { Experience } from './three/experience';
 	import type { Room } from './three/room';
 	import type { LightRig } from './three/lights';
+	import type { RigHandle } from './three/bookRig';
 	import type { ScenePalette } from './types/experience';
+	// Pure functions (no three.js/DOM touched at module scope) — safe to import
+	// statically even though this component otherwise keeps every three.js-
+	// touching module behind a dynamic import (see initScene below).
+	import { buildIdentity } from './three/bookIdentity';
+	import { SPACING } from './three/carouselMath';
 
 	// Dark editorial-room placeholder theme — real book-driven theming
 	// (blendPaletteWithMode + paletteFromSeed) arrives once the carousel task
@@ -40,6 +46,11 @@
 
 	const DUST_SETTLE_SECONDS = 2.5;
 
+	// Task 7 static mount: rig i sits at a fixed shelf slot (no carousel motion
+	// yet — that's Phase 2). Rebuilt whenever the identity id-list changes.
+	$: identities = books.map(buildIdentity);
+	$: idKey = identities.map((identity) => identity.id).join(',');
+
 	let container: HTMLDivElement;
 	let experience: Experience | null = null;
 	let room: Room | null = null;
@@ -48,6 +59,10 @@
 	let darkModeObserver: MutationObserver | null = null;
 	let currentDarkMode = false;
 	let dustSettleStart: number | null = null;
+	let shelfTop = 0.47; // fallback until initScene loads the real SHELF_TOP constant
+	let rigs: RigHandle[] = [];
+	let lastIdKey: string | null = null;
+	let bookRigModule: typeof import('./three/bookRig') | null = null;
 	// Guards the dynamic-import window in initScene(): the component can be
 	// destroyed (e.g. a store flip swapping this component out) before the
 	// five imports resolve — without this flag, initScene() would still go on
@@ -101,6 +116,7 @@
 		currentDarkMode = isDarkMode();
 
 		experience = experienceModule.createExperience(container);
+		shelfTop = experienceModule.SHELF_TOP;
 		room = roomModule.addRoom(experience.scene, experience.shelfStage, experience.reducedMotion());
 		lights = lightsModule.addLights(experience.scene);
 
@@ -108,6 +124,45 @@
 
 		experience.onFrame(handleFrame);
 		experience.requestFrame();
+	}
+
+	// Static shelf-slot placement (Task 7 checkpoint — no carousel/idle motion
+	// yet): rig i at x = i·SPACING − (N−1)·SPACING/2, y = shelfTop + h/2, z = 0.2.
+	async function rebuildRigs(): Promise<void> {
+		if (!browser || destroyed || !experience) return;
+		const requestedIdKey = idKey;
+
+		if (!bookRigModule) {
+			bookRigModule = await import('./three/bookRig');
+		}
+		// The component/identity list may have moved on while the import above
+		// was in flight — bail rather than build rigs for a stale book list.
+		if (destroyed || !experience || idKey !== requestedIdKey) return;
+
+		for (const rig of rigs) {
+			experience.shelfStage.remove(rig.root);
+			rig.dispose();
+		}
+
+		const currentIdentities = identities;
+		const n = currentIdentities.length;
+		rigs = currentIdentities.map((identity, i) => {
+			const rig = bookRigModule!.createBookRig(identity, textureQuality);
+			rig.root.position.set(i * SPACING - ((n - 1) * SPACING) / 2, shelfTop + identity.size.height / 2, 0.2);
+			rig.setOpacity(1);
+			experience!.shelfStage.add(rig.root);
+			return rig;
+		});
+		lastIdKey = requestedIdKey;
+		experience.requestFrame();
+	}
+
+	// Fires once `experience` exists (post-initScene) and again whenever the
+	// book id-list actually changes — not on every `books`/`identities` re-render.
+	$: if (browser && experience && idKey !== lastIdKey) {
+		rebuildRigs().catch((error) => {
+			console.error('Library3D: failed to build book rigs', error);
+		});
 	}
 
 	function handleResize(): void {
@@ -176,6 +231,12 @@
 			destroyed = true;
 			resizeObserver?.disconnect();
 			darkModeObserver?.disconnect();
+
+			// Rig textures (per-book CoverArtSet + emboss maps) aren't reachable via
+			// the generic scene traversal below — dispose them explicitly first.
+			for (const rig of rigs) rig.dispose();
+			rigs = [];
+			lastIdKey = null;
 
 			if (experience) {
 				disposeSceneResources(experience);
