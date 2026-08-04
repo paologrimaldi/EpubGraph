@@ -636,22 +636,6 @@
 		});
 	}
 
-	// Mirrors inspect.ts's forceReset() ring-walk. `modeMachine` (and
-	// `pendingClose`) are component-lifetime state that outlives a single
-	// `experience` — a WebGL-loss/init-failure fallback tears down and later
-	// rebuilds the *experience*, but without this the next successful
-	// initScene() would hand a fresh InspectController to a machine still
-	// stuck on whatever non-'shelf' mode it was in when the failure hit,
-	// which `InspectController.open()`'s `machine.can('opening')` guard would
-	// then refuse forever.
-	function resetModeMachine(): void {
-		if (modeMachine.mode === 'opening') modeMachine.to('inspect');
-		if (modeMachine.mode === 'inspect') modeMachine.to('closing');
-		if (modeMachine.mode === 'closing') modeMachine.to('shelf');
-		pendingClose = false;
-		syncMode();
-	}
-
 	// Tears down every three.js-owned resource (rigs, cover pipeline,
 	// room/lights/carousel/inspect/controls, the renderer + its scene graph)
 	// and resets every local handle back to its pre-init state. Shared by the
@@ -660,6 +644,24 @@
 	// the latter needs the exact same disposal but must NOT set `destroyed`,
 	// since "Retry 3D" re-runs initScene() afterward.
 	function teardownExperience(): void {
+		// Unwind the mode machine through inspect.ts's own forceReset() — the
+		// single implementation of the shelf⇄inspect ring-walk (no more
+		// hand-duplicated copy here). Per forceReset()'s documented contract
+		// this must run BEFORE `inspect` is nulled below and BEFORE the rig
+		// disposal loop that follows. `modeMachine` (and `pendingClose`) are
+		// component-lifetime state that outlives a single `experience` — a
+		// WebGL-loss/init-failure fallback tears down and later rebuilds the
+		// *experience*, but without this the next successful initScene()
+		// would hand a fresh InspectController to a machine still stuck on
+		// whatever non-'shelf' mode it was in when the failure hit, which
+		// `InspectController.open()`'s `machine.can('opening')` guard would
+		// then refuse forever.
+		if (inspect && modeMachine.mode !== 'shelf') {
+			inspect.forceReset();
+		}
+		pendingClose = false;
+		syncMode();
+
 		// Stop the pipeline (cancels pending idle work) and free every
 		// pipeline-owned real-cover texture before the rigs that reference
 		// them go away — see coverPipeline.ts's module doc for why rig
@@ -695,9 +697,18 @@
 		raycaster = null;
 		pointerVec = null;
 
-		resetModeMachine();
 		dustSettleStart = null;
 		hoveredBook = null;
+
+		// Context-loss/fallback teardown must not leave the BookDetail
+		// sidebar dangling over the HTML fallback list — the caller derives
+		// sidebar visibility from `selectedBookId` (bind:selectedBookId), so
+		// without this a context loss caught mid-inspect would leave the
+		// sidebar open above the fallback list. Mirrors closeInspect()'s own
+		// clear + dispatch, and is safe to run unconditionally here since
+		// this path also covers the plain route-unmount teardown.
+		if (selectedBookId !== null) selectedBookId = null;
+		dispatch('selectedBookIdChange', null);
 	}
 
 	// Loads cover thumbnails for the HTML fallback list, one settle per book,
@@ -749,6 +760,19 @@
 		webglFailed = false;
 		await tick();
 		if (destroyed) return;
+		// `container` lives inside `{#if !webglFailed}` — the `tick()` above
+		// just flushed a FRESH DOM node into `container` (Svelte tore down
+		// the old one when the fallback showed). The ResizeObserver created
+		// in onMount is still observing that now-detached old node, so
+		// without re-observing here, resize handling would be silently dead
+		// for the rest of the session after any fallback → retry cycle
+		// (stretched canvas on the next window resize). `disconnect()` first
+		// clears the observer's whole target set (not just one node), so
+		// this stays exactly-one-observation even across repeated retries.
+		if (resizeObserver && container) {
+			resizeObserver.disconnect();
+			resizeObserver.observe(container);
+		}
 		initScene().catch((error) => {
 			console.error('Library3D: retry failed to initialize the 3D experience', error);
 		});
