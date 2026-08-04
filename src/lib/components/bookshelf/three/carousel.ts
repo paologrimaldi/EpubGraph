@@ -304,10 +304,13 @@ export function createCarousel(
 				if (!rigSettled) unsettled = true;
 			}
 
-			// Bob is a passenger on frames already in flight (interaction/settling) —
-			// it never independently re-requests a frame, so a fully-settled,
-			// unhovered shelf still reaches true idle (0 fps), per §4.5.
+			// Bob is a perpetual sine of `elapsed` — it never itself reaches an
+			// "eps-settled" state, so the focused (and any partially-focused
+			// neighbor) book's breathing motion legitimately keeps the on-demand
+			// loop alive at a low rate whenever reduced motion is off. 0-fps idle
+			// is reserved for reduced motion, where bob is zeroed outright.
 			const bobY = reduced ? 0 : Math.sin(elapsed * BOB_FREQUENCY + i * 0.8) * BOB_AMPLITUDE * pose.focus;
+			if (!reduced && pose.focus > 0) unsettled = true;
 			writeTransforms(runtime, bobY);
 		}
 

@@ -127,6 +127,18 @@ export function createExperience(container: HTMLElement): Experience {
 	};
 	motionQuery.addEventListener('change', handleMotionChange);
 
+	// Browsers throttle/suspend rAF callbacks for a hidden (backgrounded) document —
+	// a rAF already scheduled via requestFrame() can sit unfired for as long as the
+	// tab stays hidden, which reads from the outside as "the on-demand loop died"
+	// even though a target moved and requestFrame() was called correctly. Force a
+	// fresh request the moment the document is visible again so any state mutated
+	// while hidden gets painted promptly instead of waiting on a possibly-starved
+	// pending frame.
+	const handleVisibilityChange = (): void => {
+		if (document.visibilityState === 'visible') requestFrame();
+	};
+	document.addEventListener('visibilitychange', handleVisibilityChange);
+
 	function reducedMotion(): boolean {
 		return reducedMotionValue;
 	}
@@ -143,6 +155,7 @@ export function createExperience(container: HTMLElement): Experience {
 		cb = null;
 		reducedMotionListener = null;
 		motionQuery.removeEventListener('change', handleMotionChange);
+		document.removeEventListener('visibilitychange', handleVisibilityChange);
 		environmentTarget.dispose();
 		pmremGenerator.dispose();
 		renderer.dispose();
