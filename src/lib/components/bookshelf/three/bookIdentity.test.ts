@@ -8,9 +8,10 @@ import type { Book } from '$lib/api/commands';
 const fakeBook = (id: number): Book => ({
 	id, path: '/x.epub', coverPath: null, title: 'Project Hail Mary',
 	sortTitle: null, author: 'Andy Weir', authorSort: null, series: null,
-	seriesIndex: null, description: 'A lone astronaut.', language: null,
-	publisher: null, publishDate: null, isbn: null, fileSize: 1, fileHash: null,
-	calibreId: null, source: 'local', dateAdded: 0, dateModified: 0,
+	seriesIndex: null, description: 'A lone astronaut.', language: 'en',
+	publisher: 'Ballantine', publishDate: '2021-05-04', isbn: '978-0-593-13520-4',
+	fileSize: 1048576, fileHash: null,
+	calibreId: null, source: 'local', dateAdded: 1700000000, dateModified: 0,
 	dateIndexed: null, embeddingStatus: 'complete', embeddingModel: null,
 	hidden: false, rating: null, readStatus: 'want'
 });
@@ -50,6 +51,30 @@ describe('palette', () => {
 			for (const v of Object.values(p)) expect(v).toMatch(/^#[0-9a-f]{6}$/);
 			expect(Math.abs(luminance(p.ink) - luminance(p.cloth))).toBeGreaterThan(0.3);
 		}
+	});
+});
+
+describe('buildIdentity field pass-through (§4.4/Task 15)', () => {
+	it('carries publisher/publishDate/isbn/language/fileSize/dateAdded straight off Book', () => {
+		const identity = buildIdentity(fakeBook(7));
+		expect(identity.publisher).toBe('Ballantine');
+		expect(identity.publishDate).toBe('2021-05-04');
+		expect(identity.isbn).toBe('978-0-593-13520-4');
+		expect(identity.language).toBe('en');
+		expect(identity.fileSize).toBe(1048576);
+		expect(identity.dateAdded).toBe(1700000000);
+	});
+	it('passes through null fields untouched', () => {
+		const book = fakeBook(9);
+		book.publisher = null;
+		book.publishDate = null;
+		book.isbn = null;
+		book.language = null;
+		const identity = buildIdentity(book);
+		expect(identity.publisher).toBeNull();
+		expect(identity.publishDate).toBeNull();
+		expect(identity.isbn).toBeNull();
+		expect(identity.language).toBeNull();
 	});
 });
 

@@ -38,7 +38,13 @@ function makeMockRig(id: number, height = 0.3): RigHandle & { opacityLog: number
 		author: null,
 		series: null,
 		seriesIndex: null,
-		description: null
+		description: null,
+		publisher: null,
+		publishDate: null,
+		isbn: null,
+		language: null,
+		fileSize: 0,
+		dateAdded: 0
 	};
 	return {
 		identity,

@@ -91,8 +91,13 @@ function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 	return `${out.trimEnd()}…`;
 }
 
-/** Word-wraps `text` into at most `maxLines` lines, ellipsizing the final line if it still overflows. */
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+/**
+ * Word-wraps `text` into at most `maxLines` lines, ellipsizing the final line if it still
+ * overflows. Exported for reuse by textures/pages.ts (Task 15's title/about/colophon
+ * typesetting) — same word-wrap contract (no mid-word breaks mid-line, only the final
+ * over-capacity line ever gets a mid-word ellipsis via `truncateToWidth`).
+ */
+export function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
 	const words = text.split(/\s+/).filter(Boolean);
 	const lines: string[] = [];
 	let current = '';

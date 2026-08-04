@@ -23,7 +23,12 @@ export interface RigHandle {
 	// 12 meshes, 2 (front/back) per leaf pivot in index order (leaf i → index
 	// 2i front, 2i+1 back) — raycast targets for page drag (Task 14) and
 	// deformSheet's write target (Task 13; front/back share one geometry per
-	// leaf, so deforming either's attribute updates both).
+	// leaf, so deforming either's attribute updates both). Also
+	// textures/pages.ts's applySpreads write target (Task 15): each mesh's
+	// material is its own instance (paperMaterial() called once per sheet
+	// below, never shared across leaves), so applySpreads swaps `.map` per
+	// mesh with no cross-leaf interference; no other change to this rig was
+	// needed to support it.
 	pageSurfaces: THREE.Mesh[];
 	hit: THREE.Mesh; // oversized invisible click target, userData.bookId
 	contactShadow: THREE.Mesh;
@@ -284,7 +289,32 @@ export function createBookRig(identity: BookIdentity, quality: Quality): RigHand
 
 	for (let i = 0; i < LEAF_COUNT; i++) {
 		const pivot = new THREE.Group();
-		const restZ = pageDepth / 2 + 0.0015 + i * 0.0015;
+		// Task 15 fix (§4.4): the *unturned* stack must present leaf 0 (the
+		// next page to be turned — and, critically, the one applySpreads maps
+		// the title page onto) closest to the camera, with higher-index
+		// unturned leaves progressively deeper behind it — the reverse of
+		// `turnedZ` below, whose ordering is correct as-is (the most-recently
+		// turned leaf lands ON TOP of the read stack, i.e. closest to camera,
+		// which increasing-with-`i` already gives it). Before this fix restZ
+		// also increased with `i`, so leaf 5 (blank — no SpreadSet content
+		// reaches past leaf 1) sat frontmost and occluded every other resting
+		// leaf, including leaf 0's title page, at every currentSpread — the
+		// leaf itself only ever became visible transiently mid-turn, when its
+		// rotation swept it out from under the stack.
+		//
+		// The per-leaf step also grows 4x, from 0.0015 to 0.006: at the old
+		// spacing the fix above was necessary but not sufficient — six
+		// `transparent: true` sheets (registerMaterial sets this
+		// unconditionally, for the shelf's opacity-fade) packed into a 9mm
+		// span produced unreliable inter-leaf depth resolution at ordinary
+		// inspect-camera distances, so whichever leaf the GPU happened to
+		// resolve on top still won regardless of the corrected z order
+		// (confirmed by temporarily hiding leaves 1-5, which made leaf 0's
+		// content render correctly even at the old spacing). Widening the gap
+		// gives the depth buffer enough separation to resolve leaves
+		// reliably; the closed-book silhouette is untouched since that's
+		// governed by `pageBlock`'s own fixed geometry, not this spacing.
+		const restZ = pageDepth / 2 + 0.0015 + (LEAF_COUNT - 1 - i) * 0.006;
 		pivot.position.set(-w / 2 + SPINE_WIDTH * 0.65, 0, restZ);
 		pivot.userData.restZ = restZ;
 		pivot.userData.turnedZ = d / 2 + BOARD + 0.004 + i * 0.0015;

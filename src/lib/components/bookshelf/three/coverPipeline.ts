@@ -4,6 +4,7 @@ import type { RigHandle } from './bookRig';
 import type { BookPalette } from '../types/experience';
 import { paletteFromCover } from './bookIdentity';
 import { makeRealCoverTexture } from './textures/artwork';
+import { makeSpreads, type SpreadSet } from './textures/pages';
 import { EAGER_RADIUS, QUEUE_RADIUS, coverDistance, clampIndex } from './coverWindow';
 
 // ============================================================
@@ -30,11 +31,27 @@ import { EAGER_RADIUS, QUEUE_RADIUS, coverDistance, clampIndex } from './coverWi
 // texture object, orphaned from the material but still safe to dispose on
 // its own. So a rig disposing itself never touches pipeline-owned memory,
 // and no change to bookRig.ts was needed to make that true.
+//
+// Task 15 (§4.4): `ensureSpreadSet` extends the exact same ownership pattern
+// to generated interior-page textures — a second id-keyed cache
+// (`spreadSetById`), built lazily (only when inspect.ts's `setReadingOpen`
+// first calls it for a given book, not eagerly for the whole shelf like the
+// cover cache above), diffed/disposed by the same `hydrate()` removed-id
+// pass and `dispose()`. `applySpreads` (textures/pages.ts) only ever
+// assigns `SpreadSet.textures` onto a rig's leaf-sheet material `.map`,
+// never disposes them — same split as `applyRealCover` above.
 // ============================================================
 
 export interface CoverPipeline {
 	hydrate(rigs: RigHandle[], selectedIndex: () => number): void;
 	onPalette(cb: (bookId: number, palette: BookPalette) => void): void;
+	// Task 15: lazily builds (or returns the already-cached) SpreadSet for
+	// `rig.identity.id` — the pipeline owns and disposes it (see module doc
+	// above); callers (inspect.ts) apply it to a rig via textures/pages.ts's
+	// `applySpreads` themselves, since this pipeline never touches rig
+	// geometry/materials directly (mirrors how it never calls
+	// `rig.applyRealCover` — `hydrate`'s caller-side loop does that too).
+	ensureSpreadSet(rig: RigHandle): SpreadSet;
 	dispose(): void;
 }
 
@@ -115,6 +132,20 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 	const appliedTextureByRig = new WeakMap<RigHandle, THREE.CanvasTexture>();
 	let pendingQueue: number[] = [];
 	let idleHandle: number | null = null;
+
+	// Task 15: lazy per-book SpreadSet cache — see module doc and
+	// ensureSpreadSet() below. Unlike `cache` above, entries here are only
+	// ever created on demand (a book the reader never opens never gets one).
+	const spreadSetById = new Map<number, SpreadSet>();
+
+	function ensureSpreadSet(rig: RigHandle): SpreadSet {
+		const id = rig.identity.id;
+		const existing = spreadSetById.get(id);
+		if (existing) return existing;
+		const set = makeSpreads(rig.identity, quality);
+		spreadSetById.set(id, set);
+		return set;
+	}
 
 	function firePalette(bookId: number, palette: BookPalette): void {
 		paletteCb?.(bookId, palette);
@@ -277,6 +308,15 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 				cache.delete(id);
 			}
 		}
+		// Task 15: same removed-id sweep for the SpreadSet cache — a book that
+		// falls out of the shelf entirely shouldn't keep its generated page
+		// textures alive forever.
+		for (const [id, set] of spreadSetById) {
+			if (!currentIds.has(id)) {
+				set.dispose();
+				spreadSetById.delete(id);
+			}
+		}
 		for (const id of statusById.keys()) {
 			if (!currentIds.has(id)) statusById.delete(id);
 		}
@@ -339,6 +379,8 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 		currentRigs = [];
 		for (const entry of cache.values()) entry.texture?.dispose();
 		cache.clear();
+		for (const set of spreadSetById.values()) set.dispose();
+		spreadSetById.clear();
 		paletteCb = null;
 	}
 
@@ -347,6 +389,7 @@ export function createCoverPipeline(quality: Quality): CoverPipeline {
 		onPalette(cb) {
 			paletteCb = cb;
 		},
+		ensureSpreadSet,
 		dispose
 	};
 }

@@ -91,7 +91,13 @@ export function buildIdentity(book: Book): BookIdentity {
 		author: book.author,
 		series: book.series,
 		seriesIndex: book.seriesIndex,
-		description: book.description
+		description: book.description,
+		publisher: book.publisher,
+		publishDate: book.publishDate,
+		isbn: book.isbn,
+		language: book.language,
+		fileSize: book.fileSize,
+		dateAdded: book.dateAdded
 	};
 }
 

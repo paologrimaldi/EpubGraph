@@ -6,6 +6,8 @@ import { SHELF_CAMERA_POSITION, SHELF_CAMERA_TARGET, SHELF_TOP } from './experie
 import type { Carousel } from './carousel';
 import type { RigHandle } from './bookRig';
 import type { ModeMachine } from './state';
+import type { CoverPipeline } from './coverPipeline';
+import { applySpreads, type SpreadSet } from './textures/pages';
 import { smootherstep, smoothstep, shelfPose, damp } from './carouselMath';
 import { capturePose, lerpPose, inspectScale, type PoseTargets } from './inspectMath';
 import {
@@ -68,6 +70,13 @@ export interface InspectController {
 	// pointercancel recovery) — only claimed while the book is open and idle
 	// (`readingOpen && phase === 'idle'`).
 	readonly currentSpread: number;
+	// Task 15 (§4.4): the ACTIVE book's real spread count — `SPREAD_COUNT`
+	// (the module-level export below) is only the fallback used before any
+	// SpreadSet has been generated for the active rig (i.e. before its cover
+	// has been opened this session). Library3D.svelte syncs this every frame
+	// the same way it mirrors `currentSpread`, since a per-book value can't
+	// be captured once like the old placeholder was.
+	readonly spreadCount: number;
 	turnPage(direction: 1 | -1): void; // programmatic HUD prev/next — eases like a drag, then commits
 	handlePagePointerDown(event: PointerEvent): boolean; // true if claimed (started a page drag)
 	handlePagePointerMove(event: PointerEvent): void;
@@ -75,15 +84,16 @@ export interface InspectController {
 	handlePagePointerCancel(event: PointerEvent): void;
 }
 
-// Task 14 (§4.4): placeholder spread count/labels — real per-book content
-// (title/about/colophon) arrives in Task 15; until then every inspected book
-// has the same 4 fixed "spreads" a page-turn can land on. `SPREAD_COUNT` is
-// exported so Library3D.svelte can compute the HUD next-button's disabled
-// state (`currentSpread >= SPREAD_COUNT - 1`) without duplicating the
-// number, and so `nextSpread`'s clamp and this file's own bounds checks stay
-// governed by one constant.
+// Task 14 placeholder spread count/labels — Task 15 wires real per-book
+// content (title/about/colophon, via textures/pages.ts's SpreadSet), but
+// these stay as the FALLBACK used whenever no SpreadSet has been generated
+// for the active rig yet (i.e. before its cover has been opened this
+// session, or with no activeRig at all). `SPREAD_COUNT` stays exported so
+// Library3D.svelte has a static initial default before `inspect` even
+// exists; once it does, the per-book truth is `InspectController.spreadCount`
+// (synced every frame, like `currentSpread`) — see activeSpreadCount() below.
 export const SPREAD_COUNT = 4;
-const SPREAD_LABELS = ['Cover', 'Title page', 'About', 'Details'];
+const PLACEHOLDER_SPREAD_LABELS = ['Cover', 'Title page', 'About', 'Details'];
 
 // Inspect pose constants — the design brief's original numbers ([0,1.5,3.1]
 // camera / [0,1.45,0] book) were tuned for an older, higher shelf camera.
@@ -212,8 +222,15 @@ export function createInspect(deps: {
 	sidebarWidthPx: () => number;
 	reducedMotion: () => boolean;
 	announce: (msg: string) => void;
+	// Task 15: lazy SpreadSet generation/cache lives in coverPipeline.ts (see
+	// its module doc) — inspect.ts calls ensureSpreadSet() the first time a
+	// book's cover opens, then applies the result to the rig itself via
+	// textures/pages.ts's applySpreads (this module already owns every other
+	// leaf-pivot/material touch, so application stays here rather than
+	// crossing back into coverPipeline.ts, which never touches rig geometry).
+	coverPipeline: CoverPipeline;
 }): InspectController {
-	const { experience, carousel, machine, controls, sidebarWidthPx, reducedMotion, announce } = deps;
+	const { experience, carousel, machine, controls, sidebarWidthPx, reducedMotion, announce, coverPipeline } = deps;
 	const camera = experience.camera;
 
 	controls.minDistance = ORBIT_MIN_DISTANCE;
@@ -267,6 +284,18 @@ export function createInspect(deps: {
 	let leafFlex: FlexState[] = makeIdleLeafFlex();
 	let leafDeformed: boolean[] = [false, false, false, false, false, false];
 	let previousCoverAngleForFlex = 0;
+
+	// Task 15 (§4.4): the active rig's generated interior-page content, once
+	// materialized (see setReadingOpen below) — null until the cover has been
+	// opened at least once this inspect session, at which point it's applied
+	// to the rig's leaf sheets and never changes again for this rig (a rig's
+	// identity/description don't change mid-session). activeSpreadLabels()/
+	// activeSpreadCount() are this file's only readers — every other page-
+	// turn code path below reads through those two functions instead of the
+	// PLACEHOLDER_SPREAD_LABELS/SPREAD_COUNT constants directly, so the whole
+	// file transparently starts using real per-book content the moment it's
+	// generated, with no other call site needing to know which is active.
+	let activeSpreadSet: SpreadSet | null = null;
 
 	// Cover-drag pointer tracking — a single claimed pointerId at a time
 	// (a second finger/pointer during an active drag is simply ignored by
@@ -464,6 +493,20 @@ export function createInspect(deps: {
 	 * activeRig (forceReset() may run with nothing to unwind on the rig
 	 * side, but the arrays still need to start clean for whatever book is
 	 * opened next). */
+	/** Task 15: the active rig's real spread labels, falling back to the
+	 * Task 14 placeholder whenever there's no activeRig or its SpreadSet
+	 * hasn't been generated yet (cover never opened this session) — see
+	 * activeSpreadSet's own doc comment above. Guarding on `activeRig` too
+	 * (not just `activeSpreadSet`) means a lingering reference from a just-
+	 * closed book can never leak into a reading of "no book is active". */
+	function activeSpreadLabels(): string[] {
+		return activeRig && activeSpreadSet ? activeSpreadSet.labels : PLACEHOLDER_SPREAD_LABELS;
+	}
+
+	function activeSpreadCount(): number {
+		return activeSpreadLabels().length;
+	}
+
 	function resetLeafFlexState(): void {
 		currentSpread = 0;
 		leafAngles.fill(0);
@@ -597,8 +640,8 @@ export function createInspect(deps: {
 			if (p >= 1) {
 				const direction = programmaticTurn.direction;
 				programmaticTurn = null;
-				currentSpread = nextSpread(currentSpread, direction, SPREAD_COUNT);
-				announce(SPREAD_LABELS[currentSpread] ?? '');
+				currentSpread = nextSpread(currentSpread, direction, activeSpreadCount());
+				announce(activeSpreadLabels()[currentSpread] ?? '');
 			}
 			unsettled = true;
 		}
@@ -921,6 +964,8 @@ export function createInspect(deps: {
 		} else {
 			resetLeafFlexState();
 		}
+		// Task 15: mirrors open()'s own reset — see that call site's comment.
+		activeSpreadSet = null;
 
 		activeRig = null;
 		originEl = null;
@@ -993,6 +1038,12 @@ export function createInspect(deps: {
 		// previously inspected book was left at.
 		resetPageDragState();
 		resetLeafPivots(rig);
+		// Task 15: a fresh open() is a different book (or the same book,
+		// re-opened) — either way, drop any previous rig's SpreadSet
+		// reference so activeSpreadLabels()/activeSpreadCount() fall back to
+		// the placeholder until THIS rig's cover is actually opened, rather
+		// than briefly reporting the previous book's spread count/labels.
+		activeSpreadSet = null;
 
 		machine.to('opening');
 		phase = 'opening';
@@ -1162,6 +1213,17 @@ export function createInspect(deps: {
 	 */
 	function setReadingOpen(open: boolean): void {
 		if (!activeRig || phase !== 'idle' || machine.mode !== 'inspect' || readingOpen === open) return;
+		// Task 15 (§4.4): lazy per-book interior-page generation — the first
+		// time (ever, this app session) THIS book's cover opens, build/apply
+		// its SpreadSet. coverPipeline.ensureSpreadSet caches by book id, so
+		// re-opening the same book later in the same session (or reopening
+		// after closing without leaving inspect) is a cheap cache hit, not a
+		// re-generation — applySpreads re-running against already-correct
+		// materials is a harmless no-visual-op in that case.
+		if (open) {
+			activeSpreadSet = coverPipeline.ensureSpreadSet(activeRig);
+			applySpreads(activeRig, activeSpreadSet);
+		}
 		readingOpen = open;
 		announce(open ? `Opened ${activeRig.identity.title}` : `Closed ${activeRig.identity.title}`);
 		experience.requestFrame();
@@ -1340,7 +1402,7 @@ export function createInspect(deps: {
 				return;
 			}
 			const direction: 1 | -1 = deltaX < 0 ? 1 : -1;
-			const canTurn = direction === 1 ? currentSpread < SPREAD_COUNT - 1 : currentSpread > 0;
+			const canTurn = direction === 1 ? currentSpread < activeSpreadCount() - 1 : currentSpread > 0;
 			pageDragDirection = direction;
 			pageDragLeafIndex = canTurn ? (direction === 1 ? currentSpread : currentSpread - 1) : -1;
 			// Velocity bookkeeping starts fresh from the moment direction (and
@@ -1396,8 +1458,8 @@ export function createInspect(deps: {
 		controls.enabled = machine.mode === 'inspect';
 
 		if (leafIndex >= 0 && direction && shouldCommitTurn(progress, Math.abs(velocity))) {
-			currentSpread = nextSpread(currentSpread, direction, SPREAD_COUNT);
-			announce(SPREAD_LABELS[currentSpread] ?? '');
+			currentSpread = nextSpread(currentSpread, direction, activeSpreadCount());
+			announce(activeSpreadLabels()[currentSpread] ?? '');
 		}
 		experience.requestFrame();
 	}
@@ -1441,13 +1503,13 @@ export function createInspect(deps: {
 	function turnPage(direction: 1 | -1): void {
 		if (!activeRig || !readingOpen || phase !== 'idle' || machine.mode !== 'inspect') return;
 		if (pagePointerId !== null || programmaticTurn) return;
-		const target = nextSpread(currentSpread, direction, SPREAD_COUNT);
+		const target = nextSpread(currentSpread, direction, activeSpreadCount());
 		if (target === currentSpread) return;
 		const leafIndex = direction === 1 ? currentSpread : currentSpread - 1;
 
 		if (reducedMotion()) {
 			currentSpread = target;
-			announce(SPREAD_LABELS[currentSpread] ?? '');
+			announce(activeSpreadLabels()[currentSpread] ?? '');
 			experience.requestFrame();
 			return;
 		}
@@ -1483,6 +1545,9 @@ export function createInspect(deps: {
 		handleCoverPointerCancel,
 		get currentSpread() {
 			return currentSpread;
+		},
+		get spreadCount() {
+			return activeSpreadCount();
 		},
 		turnPage,
 		handlePagePointerDown,

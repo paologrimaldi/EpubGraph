@@ -24,6 +24,15 @@ export interface BookIdentity {
 	series: string | null;
 	seriesIndex: number | null;
 	description: string | null;
+	// Task 15 (§4.4): passed straight through from the app `Book` type — consumed
+	// by textures/pages.ts's title page (publisher/year rule) and colophon
+	// (ISBN, language, file size, added date). Not used anywhere pre-Task-15.
+	publisher: string | null;
+	publishDate: string | null;
+	isbn: string | null;
+	language: string | null;
+	fileSize: number;
+	dateAdded: number;
 }
 
 export interface ScenePalette {

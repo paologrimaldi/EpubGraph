@@ -112,10 +112,11 @@
 	let readingOpen = false;
 	// Task 14: mirrors InspectController.currentSpread for the prev/next page
 	// HUD buttons' disabled states — same rationale/pattern as readingOpen
-	// (see syncCurrentSpread). `spreadCount` is captured once from the
-	// dynamically-imported inspect module during initScene (mirrors how
-	// `shelfTop` is captured from experienceModule) since it's a static
-	// constant, not per-frame state.
+	// (see syncCurrentSpread). Task 15: `spreadCount` is no longer a static
+	// constant captured once — real per-book content means it varies by
+	// book, so it's synced every frame exactly like currentSpread (see
+	// syncSpreadCount). `4` is just the initial default, matching
+	// inspect.ts's own SPREAD_COUNT placeholder until `inspect` exists.
 	let currentSpread = 0;
 	let spreadCount = 4;
 	let liveMessage = '';
@@ -178,6 +179,7 @@
 		syncMode();
 		syncReadingOpen();
 		syncCurrentSpread();
+		syncSpreadCount();
 		// Drain a close that arrived while still 'opening' (Finding 3) the
 		// instant 'inspect' is reached — at most one frame after
 		// inspect.update() above drove finishOpening(), never waiting on a
@@ -209,6 +211,15 @@
 	function syncCurrentSpread(): void {
 		const value = inspect?.currentSpread ?? 0;
 		if (currentSpread !== value) currentSpread = value;
+	}
+
+	// Task 15: mirrors InspectController.spreadCount — a real per-book value
+	// once that book's cover has been opened (falls back to inspect.ts's own
+	// placeholder count until then), so it can no longer be captured once
+	// like the pre-Task-15 constant was.
+	function syncSpreadCount(): void {
+		const value = inspect?.spreadCount;
+		if (value !== undefined && spreadCount !== value) spreadCount = value;
 	}
 
 	function announceSelection(index: number): void {
@@ -310,9 +321,9 @@
 				reducedMotion: experience.reducedMotion,
 				announce: (msg: string) => {
 					liveMessage = msg;
-				}
+				},
+				coverPipeline
 			});
-			spreadCount = inspectModule.SPREAD_COUNT;
 
 			experience.onFrame(handleFrame);
 			experience.requestFrame();
