@@ -13,6 +13,11 @@ const BOOK_COLUMNS: &str = "b.id, b.path, b.cover_path, b.file_size, b.file_hash
     b.source, b.date_added, b.date_modified, b.date_indexed,
     b.embedding_status, b.embedding_model, b.hidden";
 
+/// How many times an embedding may fail before the book is left alone.
+/// Bounded so a genuinely un-embeddable book cannot spin forever, but high
+/// enough that transient outages (Ollama restart, model swap) always recover.
+pub const MAX_EMBEDDING_ATTEMPTS: i64 = 3;
+
 impl Database {
     // ============================================
     // LIBRARY OPERATIONS
@@ -597,8 +602,12 @@ impl Database {
     pub fn update_embedding_status(&self, book_id: i64, status: &str) -> AppResult<()> {
         self.with_conn(|conn| {
             conn.execute(
-                "UPDATE books SET embedding_status = ?, date_indexed = strftime('%s', 'now') WHERE id = ?",
-                params![status, book_id],
+                "UPDATE books
+                 SET embedding_status = ?,
+                     embedding_attempts = CASE WHEN ? = 'complete' THEN 0 ELSE embedding_attempts END,
+                     date_indexed = strftime('%s', 'now')
+                 WHERE id = ?",
+                params![status, status, book_id],
             )?;
             Ok(())
         })
@@ -608,22 +617,62 @@ impl Database {
     pub fn reset_all_embedding_statuses(&self) -> AppResult<i64> {
         self.with_conn(|conn| {
             let updated = conn.execute(
-                "UPDATE books SET embedding_status = 'pending', embedding_model = NULL, date_indexed = NULL",
+                "UPDATE books SET embedding_status = 'pending', embedding_model = NULL, date_indexed = NULL, embedding_attempts = 0",
                 [],
             )?;
             Ok(updated as i64)
         })
     }
 
-    /// Get books pending embedding generation
+    /// Get books pending embedding generation.
+    ///
+    /// Also picks up previously-failed books that still have attempts left, but
+    /// orders them strictly after the never-tried ones (`embedding_status =
+    /// 'failed'` sorts 0 before 1 in SQLite) so a book that fails repeatedly can
+    /// never head-of-line block the 56k-deep pending queue.
     pub fn get_pending_embedding_books(&self, limit: i64) -> AppResult<Vec<i64>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id FROM books WHERE embedding_status = 'pending' ORDER BY hidden ASC, date_added DESC LIMIT ?"
+                "SELECT id FROM books
+                 WHERE embedding_status = 'pending'
+                    OR (embedding_status = 'failed' AND embedding_attempts < ?)
+                 ORDER BY embedding_status = 'failed', hidden ASC, date_added DESC
+                 LIMIT ?"
             )?;
-            let ids = stmt.query_map([limit], |row| row.get(0))?
+            let ids = stmt.query_map(params![MAX_EMBEDDING_ATTEMPTS, limit], |row| row.get(0))?
                 .collect::<Result<Vec<i64>, _>>()?;
             Ok(ids)
+        })
+    }
+
+    /// Record a failed embedding attempt, incrementing the bounded retry counter.
+    ///
+    /// Use this rather than `update_embedding_status(id, "failed")` so the book
+    /// stays eligible for retry until it has burned MAX_EMBEDDING_ATTEMPTS.
+    pub fn mark_embedding_failed(&self, book_id: i64) -> AppResult<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE books
+                 SET embedding_status = 'failed',
+                     embedding_attempts = embedding_attempts + 1,
+                     date_indexed = strftime('%s', 'now')
+                 WHERE id = ?",
+                [book_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Books that have exhausted their retries and need manual attention.
+    pub fn count_exhausted_embedding_books(&self) -> AppResult<i64> {
+        self.with_conn(|conn| {
+            let n: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM books
+                 WHERE embedding_status = 'failed' AND embedding_attempts >= ?",
+                [MAX_EMBEDDING_ATTEMPTS],
+                |r| r.get(0),
+            )?;
+            Ok(n)
         })
     }
 
@@ -923,7 +972,16 @@ impl Database {
             let total_authors: i64 = conn.query_row("SELECT COUNT(DISTINCT author) FROM books WHERE author IS NOT NULL", [], |r| r.get(0))?;
             let total_series: i64 = conn.query_row("SELECT COUNT(DISTINCT series) FROM books WHERE series IS NOT NULL", [], |r| r.get(0))?;
             let books_with_embeddings: i64 = conn.query_row("SELECT COUNT(*) FROM books WHERE embedding_status = 'complete'", [], |r| r.get(0))?;
-            let pending_embeddings: i64 = conn.query_row("SELECT COUNT(*) FROM books WHERE embedding_status = 'pending'", [], |r| r.get(0))?;
+            // Must mirror get_pending_embedding_books' WHERE clause exactly: the
+            // UI loop halts when this reaches 0, so if retryable failures were
+            // excluded here they would be queued but never actually retried.
+            let pending_embeddings: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM books
+                 WHERE embedding_status = 'pending'
+                    OR (embedding_status = 'failed' AND embedding_attempts < ?)",
+                [MAX_EMBEDDING_ATTEMPTS],
+                |r| r.get(0),
+            )?;
             let books_needing_metadata: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM books
                  WHERE (description IS NULL OR description = '')

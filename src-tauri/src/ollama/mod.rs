@@ -106,8 +106,8 @@ impl OllamaClient {
             .json(&request)
             .send()
             .await
-            .map_err(|e| AppError::Ollama(format!("Request failed: {}", e)))?;
-        
+            .map_err(classify_transport_error)?;
+
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
@@ -148,7 +148,7 @@ impl OllamaClient {
             .json(&request)
             .send()
             .await
-            .map_err(|e| AppError::Ollama(format!("Chat request failed: {}", e)))?;
+            .map_err(classify_transport_error)?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -160,6 +160,19 @@ impl OllamaClient {
             .map_err(|e| AppError::Ollama(format!("Failed to parse chat response: {}", e)))?;
 
         Ok(result.response)
+    }
+}
+
+/// Split "the server isn't there" from "the server said no".
+///
+/// Only the former should abort a batch: connect/timeout failures are about the
+/// server, not the book being processed, and blaming the book would spend its
+/// retry budget on an outage it had nothing to do with.
+fn classify_transport_error(e: reqwest::Error) -> AppError {
+    if e.is_connect() || e.is_timeout() || e.is_request() {
+        AppError::OllamaUnavailable(e.to_string())
+    } else {
+        AppError::Ollama(format!("Request failed: {}", e))
     }
 }
 
@@ -185,6 +198,9 @@ pub struct ProcessingStatus {
     pub is_paused: bool,
     pub estimated_time_remaining: Option<i64>,
     pub books_needing_metadata: i64,
+    /// Books that burned all MAX_EMBEDDING_ATTEMPTS and are no longer queued.
+    /// Surfaced so a silent bounded-retry give-up can't masquerade as "done".
+    pub books_failed_permanently: i64,
 }
 
 // API request/response types

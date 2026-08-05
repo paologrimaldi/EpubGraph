@@ -57,6 +57,8 @@ pub async fn get_processing_status(
         is_paused: state.is_processing_paused(),
         estimated_time_remaining: None, // TODO: calculate based on rate
         books_needing_metadata: stats.books_needing_metadata,
+        books_failed_permanently: state.db.count_exhausted_embedding_books()
+            .map_err(|e| e.to_string())?,
     })
 }
 
@@ -169,6 +171,17 @@ pub async fn process_embeddings_batch(
                 *book_id, &book, &tags, &chapter_titles,
             ).await {
                 Ok(summary) => summary,
+                // Ollama is down: stop rather than silently embedding a
+                // metadata-only fallback and marking the book 'complete'. That
+                // would bake a degraded embedding in permanently, with nothing
+                // to distinguish it from a real one later.
+                Err(crate::AppError::OllamaUnavailable(msg)) => {
+                    tracing::warn!(
+                        "Ollama unreachable during summary ({}) — stopping batch after {} books",
+                        msg, processed
+                    );
+                    break;
+                }
                 Err(e) => {
                     tracing::debug!("Summary unavailable for book {}: {}, using metadata", book_id, e);
                     crate::ollama::book_to_embedding_text(
@@ -215,9 +228,17 @@ pub async fn process_embeddings_batch(
                         failed += 1;
                     }
                 }
+                Err(crate::AppError::OllamaUnavailable(msg)) => {
+                    tracing::warn!(
+                        "Ollama unreachable during embed ({}) — stopping batch after {} books; \
+                         untouched books stay 'pending' with their retry budget intact",
+                        msg, processed
+                    );
+                    break;
+                }
                 Err(e) => {
                     tracing::warn!("Embedding failed for book {}: {}", book_id, e);
-                    state.db.update_embedding_status(*book_id, "failed").ok();
+                    state.db.mark_embedding_failed(*book_id).ok();
                     failed += 1;
                 }
             }

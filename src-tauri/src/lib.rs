@@ -36,6 +36,14 @@ pub enum AppError {
     
     #[error("Ollama error: {0}")]
     Ollama(String),
+
+    /// Ollama could not be reached at all (connection refused / timed out), as
+    /// opposed to rejecting a specific request. Callers processing a batch must
+    /// treat this as "stop, try later" rather than blaming the current book —
+    /// connection-refused returns instantly, so attributing it to books would
+    /// burn a whole batch's retries in well under a second.
+    #[error("Ollama unavailable: {0}")]
+    OllamaUnavailable(String),
     
     #[error("Configuration error: {0}")]
     Config(String),

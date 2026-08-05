@@ -421,6 +421,13 @@
 							{processingStatus.pending.toLocaleString()} pending
 						{/if}
 					</p>
+					<!-- Exhausted retries are excluded from `pending`, so without this
+					     line a run that gave up on books would still read "Complete". -->
+					{#if processingStatus.booksFailedPermanently > 0}
+						<p class="text-[11px] leading-tight" style="color: var(--gw-error)">
+							{processingStatus.booksFailedPermanently.toLocaleString()} failed after retries
+						</p>
+					{/if}
 				</div>
 				{#if canStartEmbeddings || isProcessingEmbeddings}
 					<button

@@ -4,7 +4,7 @@ use crate::AppResult;
 use rusqlite::Connection;
 
 /// Current schema version
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 /// Run all pending migrations
 pub fn run_migrations(conn: &Connection) -> AppResult<()> {
@@ -40,6 +40,9 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     }
     if current_version < 4 {
         migrate_v4(conn)?;
+    }
+    if current_version < 5 {
+        migrate_v5(conn)?;
     }
 
     Ok(())
@@ -361,5 +364,35 @@ fn migrate_v4(conn: &Connection) -> AppResult<()> {
     )?;
 
     tracing::info!("Migration v4 applied successfully");
+    Ok(())
+}
+
+/// Retryable embedding failures.
+///
+/// Before v5 an embedding failure set `embedding_status = 'failed'` and nothing
+/// ever selected that status again, so a book was stranded permanently. A single
+/// Ollama restart mid-run could strand a whole batch in under a second, because
+/// connection-refused fails instantly rather than after the 120s timeout. v5 adds
+/// a bounded attempt counter, and rescues anything already stranded.
+fn migrate_v5(conn: &Connection) -> AppResult<()> {
+    tracing::info!("Applying migration v5: retryable embedding failures");
+
+    conn.execute_batch(r#"
+        ALTER TABLE books ADD COLUMN embedding_attempts INTEGER NOT NULL DEFAULT 0;
+
+        -- Rescue books stranded by the pre-v5 permanent-'failed' behaviour.
+        UPDATE books SET embedding_status = 'pending' WHERE embedding_status = 'failed';
+
+        -- Serves the retry arm of get_pending_embedding_books.
+        CREATE INDEX IF NOT EXISTS idx_books_embedding_retry
+            ON books(embedding_status, embedding_attempts);
+    "#)?;
+
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?)",
+        [5],
+    )?;
+
+    tracing::info!("Migration v5 applied successfully");
     Ok(())
 }

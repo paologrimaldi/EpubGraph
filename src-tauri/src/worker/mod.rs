@@ -10,7 +10,7 @@ use crate::graph::compute_all_edge_weights;
 use crate::ollama::{book_to_embedding_text, OllamaClient};
 use crate::state::BackgroundJob;
 use crate::vector::VectorStore;
-use crate::AppResult;
+use crate::{AppError, AppResult};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,17 +20,19 @@ use parking_lot::RwLock;
 pub struct WorkerConfig {
     /// Minimum delay between jobs (rate limiting)
     pub job_delay_ms: u64,
-    /// Maximum retries for failed jobs
-    pub max_retries: u32,
     /// Batch size for edge computation
     pub edge_batch_size: usize,
 }
 
+// Retry policy deliberately does NOT live here. It used to, as a `max_retries`
+// field that nothing ever read, which made failures look bounded while they were
+// in fact permanent. Retries are now enforced in the query layer via
+// db::MAX_EMBEDDING_ATTEMPTS and books.embedding_attempts, so the budget travels
+// with the book instead of with an in-memory worker that restarts.
 impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             job_delay_ms: 100,
-            max_retries: 3,
             edge_batch_size: 100,
         }
     }
@@ -159,8 +161,12 @@ impl BackgroundWorker {
             match client.embed(&text).await {
                 Ok(emb) => emb,
                 Err(e) => {
+                    // An unreachable server is not this book's fault, so it must
+                    // not spend the book's retry budget — leave it 'pending'.
+                    if !matches!(e, AppError::OllamaUnavailable(_)) {
+                        self.db.mark_embedding_failed(book_id)?;
+                    }
                     tracing::warn!("Failed to generate embedding for book {}: {}", book_id, e);
-                    self.db.update_embedding_status(book_id, "failed")?;
                     return Err(e);
                 }
             }
@@ -288,6 +294,12 @@ pub async fn process_pending_embeddings(
             // Try LLM summary first, fall back to metadata
             let text = match crate::ollama::get_or_generate_summary(db, &endpoint_for_summary, &chat_model_for_summary, book_id, &book, &tags, &chapter_titles).await {
                 Ok(summary) => summary,
+                // Stop instead of quietly baking in a metadata-only embedding
+                // and marking the book 'complete' — see commands/ollama.rs.
+                Err(AppError::OllamaUnavailable(msg)) => {
+                    tracing::warn!("Ollama unreachable during summary ({}) — stopping after {} books", msg, processed);
+                    break;
+                }
                 Err(e) => {
                     tracing::debug!("Summary unavailable for book {}: {}, using metadata", book_id, e);
                     book_to_embedding_text(
@@ -316,9 +328,17 @@ pub async fn process_pending_embeddings(
                         processed += 1;
                     }
                 }
+                Err(AppError::OllamaUnavailable(msg)) => {
+                    tracing::warn!(
+                        "Ollama unreachable during embed ({}) — stopping after {} books; \
+                         untouched books stay 'pending' with their retry budget intact",
+                        msg, processed
+                    );
+                    break;
+                }
                 Err(e) => {
                     tracing::warn!("Embedding failed for book {}: {}", book_id, e);
-                    db.update_embedding_status(book_id, "failed")?;
+                    db.mark_embedding_failed(book_id)?;
                 }
             }
 

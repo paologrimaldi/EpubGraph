@@ -159,6 +159,8 @@ export interface ProcessingStatus {
 	isPaused: boolean;
 	estimatedTimeRemaining: number | null;
 	booksNeedingMetadata: number;
+	/** Books that exhausted their embedding retries and are no longer queued. */
+	booksFailedPermanently: number;
 }
 
 export interface MetadataParsingResult {
