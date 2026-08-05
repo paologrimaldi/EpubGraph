@@ -8,7 +8,7 @@ import type { RigHandle } from './bookRig';
 import type { ModeMachine } from './state';
 import type { CoverPipeline } from './coverPipeline';
 import { applySpreads, type SpreadSet } from './textures/pages';
-import { smootherstep, smoothstep, shelfPose, damp } from './carouselMath';
+import { smootherstep, smoothstep, inverseSmoothstep, shelfPose, damp } from './carouselMath';
 import { capturePose, lerpPose, inspectScale, type PoseTargets } from './inspectMath';
 import {
 	coverOpenAmount,
@@ -21,6 +21,8 @@ import {
 	nextSpread,
 	canClaimPageDrag,
 	canClaimAnyGesture,
+	shouldResetSpreadOnClose,
+	openAmountFromAngle,
 	LEAF_TURNED_ANGLE,
 	type CoverDrag,
 	type FlexState
@@ -442,16 +444,32 @@ export function createInspect(deps: {
 	// see bookRig.ts's buildBoardPivot) — a few % of INSPECT_DISTANCE, which
 	// this frustum-fit intentionally does not chase exactly (see inspect.ts's
 	// module doc). Verified against a running build: the book comes out
-	// noticeably (~15%) larger than the literal 72% figure but still fits
-	// the safe width with margin on both sides — a controller-tunable nuance
-	// via SAFE_WIDTH_FRACTION in inspectMath.ts, not a functional bug.
+	// noticeably larger than the literal width-fit figure alone but still
+	// fits both the safe width and the frame height with margin — a
+	// controller-tunable nuance via SAFE_WIDTH_FRACTION/SAFE_HEIGHT_FRACTION
+	// in inspectMath.ts, not a functional bug.
+	//
+	// QA round 1, Finding 2: fits BOTH width AND height (inspectScale takes
+	// the book's height and the frustum height at the book's depth too, and
+	// returns min(widthFit, heightFit)) — previously width-only, which left
+	// the book overflowing the frame vertically at wide/short aspects. Used
+	// by both open() (the initial pose) and resetView() (via onResize/the
+	// canonical endBookPose captured at open time — see resetView's own doc)
+	// so the two land on the identical framing the brief requires.
 	function computeInspectScale(rig: RigHandle): number {
 		const vFov = THREE.MathUtils.degToRad(camera.fov);
 		const frustumHeight = 2 * Math.tan(vFov / 2) * INSPECT_DISTANCE;
 		const frustumWidthAtBook = frustumHeight * camera.aspect;
 		const viewportWidthPx = Math.max(experience.renderer.domElement.clientWidth, 1);
 		const safeWidthPx = Math.max(viewportWidthPx - sidebarWidthPx(), 1);
-		return inspectScale(rig.identity.size.width, safeWidthPx, viewportWidthPx, frustumWidthAtBook);
+		return inspectScale(
+			rig.identity.size.width,
+			rig.identity.size.height,
+			safeWidthPx,
+			viewportWidthPx,
+			frustumWidthAtBook,
+			frustumHeight
+		);
 	}
 
 	/** The rig's resting shelf-slot pose at offset 0 (the *focused* slot) —
@@ -655,6 +673,25 @@ export function createInspect(deps: {
 		}
 
 		const openAmount = coverOpenAmount(readingOpen, coverDrag);
+
+		// QA round 1, Finding 3/6: the cover just settled fully closed (this
+		// frame's raw openAmount reached 0, not overridden by an in-flight
+		// drag) while a stale currentSpread from before the close survived —
+		// reset it now, the edge-triggered instant shouldResetSpreadOnClose
+		// becomes true (see its own doc comment for the exact "stuck to the
+		// cover on reopen" bug this prevents). Deliberately NOT a call to
+		// resetLeafPivots()'s hard geometry snap: every leaf's *target* this
+		// frame (leafTargets, in the per-leaf loop below) already reads
+		// {angle:0,z:0} purely from openAmount===0, regardless of
+		// currentSpread's value — so the already-correct eased return to flat
+		// (each leaf damping toward that target at LEAF_LAMBDA, same as any
+		// other close) is completely unaffected by exactly which frame this
+		// bookkeeping-only reset lands on. Hard-snapping here would instead
+		// fight that ease and pop any leaf still mid-return-to-flat.
+		if (shouldResetSpreadOnClose(readingOpen, coverDrag.active, openAmount, currentSpread)) {
+			currentSpread = 0;
+		}
+
 		const angleTarget = coverAngle(openAmount);
 		let coverAngleUnsettled = false;
 		if (coverDrag.active) {
@@ -1347,7 +1384,20 @@ export function createInspect(deps: {
 		coverDragStartClientX = event.clientX;
 		coverDragTraveled = false;
 		coverDragKindAtStart = readingOpen ? 'cover-close' : 'cover-open';
-		coverDrag = { active: true, kind: coverDragKindAtStart, progress: 0 };
+		// QA round 1 (adjacent fix, "mid-ease cover regrab"): seed `progress`
+		// from the cover's actual live angle instead of always starting at 0
+		// — otherwise coverOpenAmount (driven 1:1 off `progress` the instant
+		// coverDrag.active flips true) evaluates to a hard 0 or 1 on this same
+		// frame's updateCoverPivot, snapping the cover instantly to whichever
+		// extreme `coverDragKindAtStart` points toward if it was grabbed
+		// mid-ease from a just-toggled open/close rather than fully settled.
+		// See openAmountFromAngle's/inverseSmoothstep's own doc comments.
+		const liveOpenFraction = openAmountFromAngle(coverAngleCurrent);
+		const seedProgress =
+			coverDragKindAtStart === 'cover-open'
+				? inverseSmoothstep(liveOpenFraction)
+				: inverseSmoothstep(1 - liveOpenFraction);
+		coverDrag = { active: true, kind: coverDragKindAtStart, progress: seedProgress };
 		controls.enabled = false;
 		try {
 			experience.renderer.domElement.setPointerCapture(event.pointerId);

@@ -1069,6 +1069,20 @@
 
 		{#if mode === 'inspect'}
 			<div class="inspect-hud">
+				<!-- QA round 1, Finding 1: the only prior way back to the shelf was
+				     clicking empty canvas or pressing Escape — neither is an
+				     affordance a user would discover on their own. First in the
+				     group, wired to the exact same close path as Escape
+				     (closeInspect) so it's just another entry point into the one
+				     existing close flow, not a second one to keep in sync. -->
+				<button
+					type="button"
+					class="inspect-reset-btn"
+					aria-label="Return book to shelf"
+					on:click={closeInspect}
+				>
+					Back to shelf
+				</button>
 				<button type="button" class="inspect-reset-btn" on:click={() => inspect?.resetView()}>
 					Reset view
 				</button>

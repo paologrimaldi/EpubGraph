@@ -44,6 +44,24 @@ export function coverAngle(openAmount: number): number {
 	return t === 0 ? 0 : OPEN_ANGLE * t;
 }
 
+/**
+ * Inverse of `coverAngle` — given a live `frontPivot.rotation.y` contribution
+ * (e.g. the eased `coverAngleCurrent`), returns the `openAmount` ∈ [0,1] it
+ * corresponds to. QA round 1 (adjacent fix, "mid-ease cover regrab"): used to
+ * seed a cover-drag regrab's `progress` from wherever the cover visually is
+ * at grab time, instead of always starting from `progress: 0` — a regrab
+ * mid-ease previously snapped the cover instantly to whichever extreme the
+ * new drag's `kind` pointed toward (`coverOpenAmount` evaluates a fresh drag
+ * at `progress: 0` to exactly 0 or 1 on its very first frame, regardless of
+ * the angle the cover was actually easing through when grabbed). See
+ * `inverseSmoothstep` in carouselMath.ts, which this feeds, for the other
+ * half of the seed.
+ */
+export function openAmountFromAngle(angle: number): number {
+	const t = angle / OPEN_ANGLE;
+	return Math.min(Math.max(t, 0), 1);
+}
+
 // Shared with carousel.ts's shelf-mode hover-crack (same tuned angle, see
 // carousel.ts's own HOVER_CRACK) — re-exported here so inspect.ts's cover
 // interactions (Task 12) can depend on pageFlex.ts alone for every open/
@@ -253,4 +271,43 @@ export function canClaimPageDrag(pagePointerId: number | null, programmaticTurnA
  */
 export function canClaimAnyGesture(coverPointerId: number | null, pagePointerId: number | null): boolean {
 	return coverPointerId === null && pagePointerId === null;
+}
+
+/**
+ * QA round 1, Finding 3/6: whether the cover has just settled fully closed
+ * and `currentSpread`/leaf state needs resetting back to the title page.
+ * Root cause of the reported bug ("open, turn to page 2, close the cover,
+ * regrab it open again → lands on page 3 as if the first pages were stuck to
+ * the cover"): `currentSpread` was previously ONLY ever reset by
+ * `resetLeafPivots` — called from `open()` (a fresh book), `forceReset()`
+ * (leaving inspect entirely), and `beginClosingTransition()` (the full
+ * inspect→shelf close) — never by a cover that closes while STAYING in
+ * inspect (a drag-close commit, or the HUD "Open book" toggle used to close).
+ * That let a stale `currentSpread > 0` survive a full close/reopen cycle
+ * within the same inspect session: `leafTargets` forces every leaf to rest
+ * whenever `openAmount === 0` regardless of `currentSpread` (so the closed
+ * book itself never looked wrong), but the moment the cover opens again,
+ * `openAmount` ramps 0→1 and `leafTargets` resumes reading the stale
+ * `currentSpread`, animating leaves `< currentSpread` as "turned" in lockstep
+ * with the reopening cover — the exact "stuck to the cover" symptom — and
+ * landing the reader on whatever spread was last showing instead of the
+ * title page.
+ *
+ * True exactly when: the book is settled closed (`!readingOpen`), no cover
+ * drag is overriding that settled state (`!dragActive` — a drag still in
+ * flight hasn't decided open vs. closed yet), the eased/raw open amount has
+ * actually reached 0 (not just `readingOpen` flipping — see inspect.ts's
+ * `updateCoverPivot`, which computes `openAmount` fresh from `readingOpen`/
+ * `coverDrag` every frame, so this is true the very same frame `readingOpen`
+ * commits false), and there's actually something to reset (`currentSpread !==
+ * 0`) so the caller's reset work is a one-time edge trigger, not a per-frame
+ * no-op re-run.
+ */
+export function shouldResetSpreadOnClose(
+	readingOpen: boolean,
+	dragActive: boolean,
+	openAmount: number,
+	currentSpread: number
+): boolean {
+	return !readingOpen && !dragActive && openAmount === 0 && currentSpread !== 0;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	SPACING, shouldWrap, wrapOffset, shortestDelta, clampTarget,
-	damp, smoothstep, smootherstep, shelfPose
+	damp, smoothstep, smootherstep, inverseSmoothstep, shelfPose
 } from './carouselMath';
 
 describe('wrapping', () => {
@@ -41,6 +41,23 @@ describe('damp/easing', () => {
 		expect(smoothstep(0)).toBe(0); expect(smoothstep(1)).toBe(1);
 		expect(smootherstep(0)).toBe(0); expect(smootherstep(1)).toBe(1);
 		expect(smootherstep(0.5)).toBeCloseTo(0.5, 10);
+	});
+});
+
+describe('inverseSmoothstep (QA round 1: mid-ease cover regrab continuity)', () => {
+	it('hits exact endpoints and midpoint', () => {
+		expect(inverseSmoothstep(0)).toBeCloseTo(0, 10);
+		expect(inverseSmoothstep(1)).toBeCloseTo(1, 10);
+		expect(inverseSmoothstep(0.5)).toBeCloseTo(0.5, 10);
+	});
+	it('round-trips through smoothstep for a spread of values', () => {
+		for (const y of [0.05, 0.18, 0.3, 0.42, 0.6, 0.73, 0.88, 0.97]) {
+			expect(smoothstep(inverseSmoothstep(y))).toBeCloseTo(y, 9);
+		}
+	});
+	it('clamps out-of-range input like smoothstep does', () => {
+		expect(inverseSmoothstep(-1)).toBeCloseTo(0, 10);
+		expect(inverseSmoothstep(2)).toBeCloseTo(1, 10);
 	});
 });
 

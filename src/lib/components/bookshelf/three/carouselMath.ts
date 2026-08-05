@@ -27,6 +27,27 @@ const clamp01 = (t: number) => Math.min(Math.max(t, 0), 1);
 export const smoothstep = (t: number) => { const c = clamp01(t); return c * c * (3 - 2 * c); };
 export const smootherstep = (t: number) => { const c = clamp01(t); return c * c * c * (c * (c * 6 - 15) + 10); };
 
+/**
+ * Closed-form inverse of `smoothstep` (the cubic `3x²-2x³`, solved via the
+ * standard trigonometric depressed-cubic substitution) — given a *target*
+ * eased value `y`, returns the raw `x` that `smoothstep(x)` would reproduce.
+ * QA round 1 (adjacent fix, "mid-ease cover regrab"): a cover-drag pointerdown
+ * previously always seeded `coverDrag.progress = 0`, so `coverOpenAmount`
+ * evaluated to 0 or 1 on the very first frame of a *re*-grab — snapping the
+ * cover instantly to the opposite extreme if the user grabbed it while it was
+ * still mid-ease from a just-toggled open/close. Seeding `progress` from this
+ * inverse instead makes `coverOpenAmount` reproduce the cover's actual live
+ * angle on that first frame, so a regrab picks up continuously. Exact at the
+ * endpoints and the midpoint (`inverseSmoothstep(0) = 0`,
+ * `inverseSmoothstep(1) = 1`, `inverseSmoothstep(0.5) = 0.5`) — see
+ * carouselMath.test.ts's round-trip coverage.
+ */
+export function inverseSmoothstep(y: number): number {
+	const c = clamp01(y);
+	const clamped = Math.min(Math.max(1 - 2 * c, -1), 1);
+	return 0.5 - Math.sin(Math.asin(clamped) / 3);
+}
+
 export interface ShelfPose {
 	x: number; y: number; z: number;
 	rotY: number; rotZ: number;

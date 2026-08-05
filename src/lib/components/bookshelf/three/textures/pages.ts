@@ -39,12 +39,61 @@ const BASE_INK = '#211b16';
 const HEADING_INK_BLEND = 0.38;
 
 // "serif ~34ch/line, ≤26 lines/page, up to 2 pages" (brief Step 1/interfaces).
+// QA round 1, Finding 5: the "≤26 lines/page" figure was hardcoded
+// independently of `bodyFontSize`/line-height — since `fitAboutFontSize`
+// solves for font size purely from the *horizontal* target (~34 chars/line),
+// a description whose actual character mix picked a larger font produced a
+// taller line-height that 26 fixed lines could overflow well past the
+// canvas's bottom edge (confirmed: at a 40px font, 26 lines * 62px
+// line-height ≈ 1612px against a 768px-tall medium-quality canvas — over 2x
+// the drawable height). `ABOUT_MAX_LINES_PER_PAGE` is now *derived* per book
+// from real geometry via computeAboutMaxLinesPerPage below, instead of a
+// fixed constant — see that function's doc comment.
 const ABOUT_TARGET_CHARS_PER_LINE = 34;
-const ABOUT_MAX_LINES_PER_PAGE = 26;
 const ABOUT_MAX_PAGES = 2;
 const ABOUT_FONT_MIN = 14;
 const ABOUT_FONT_MAX = 40;
 const ABOUT_MARGIN_X_FRACTION = 0.12;
+// Shared by paintAboutPage (rendering) and computeAboutMaxLinesPerPage
+// (pagination math) so the two can never drift apart — see Finding 5's root
+// cause above, which was exactly this kind of derived-vs-assumed mismatch.
+const ABOUT_LINE_HEIGHT_FACTOR = 1.55;
+const ABOUT_BODY_TOP_FRACTION = 0.16; // where the first body line's baseline sits
+// Brief-specified floor ("bottom margin ≥ 6% of canvas height so no glyph
+// ever touches the edge") — the *drawable* area for body lines stops this
+// far above the canvas bottom.
+const ABOUT_BOTTOM_MARGIN_FRACTION = 0.06;
+
+/**
+ * How many About-page body lines fit between the body's top start
+ * (`ABOUT_BODY_TOP_FRACTION`) and the bottom margin
+ * (`ABOUT_BOTTOM_MARGIN_FRACTION`), for a given canvas height and body font
+ * size — floored, so a partially-fitting final line is never scheduled (its
+ * descenders would land past the margin). Pure (no canvas/DOM), so the
+ * pagination math is independently testable — see pages.test.ts.
+ */
+export function computeAboutMaxLinesPerPage(canvasHeight: number, bodyFontSize: number): number {
+	const lineHeight = bodyFontSize * ABOUT_LINE_HEIGHT_FACTOR;
+	const drawableHeight = canvasHeight * (1 - ABOUT_BOTTOM_MARGIN_FRACTION - ABOUT_BODY_TOP_FRACTION);
+	return Math.max(1, Math.floor(drawableHeight / lineHeight));
+}
+
+/**
+ * Splits `lines` into at most `ABOUT_MAX_PAGES` pages of up to
+ * `maxLinesPerPage` lines each — the lines→pages half of Finding 5's
+ * pagination math, factored out so it's testable independent of canvas/DOM
+ * (see pages.test.ts). `wrapText` (the caller) already ellipsizes anything
+ * past the total `maxLinesPerPage * ABOUT_MAX_PAGES` budget, so this never
+ * needs to itself decide what happens past the last page.
+ */
+export function paginateAboutLines(lines: string[], maxLinesPerPage: number): string[][] {
+	if (lines.length === 0) return [];
+	const pages: string[][] = [];
+	for (let start = 0; start < lines.length && pages.length < ABOUT_MAX_PAGES; start += maxLinesPerPage) {
+		pages.push(lines.slice(start, start + maxLinesPerPage));
+	}
+	return pages;
+}
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.min(max, Math.max(min, value));
@@ -200,8 +249,8 @@ function paintAboutPage(
 
 	ctx.font = `${bodyFontSize}px ${SERIF_STACK}`;
 	ctx.fillStyle = BASE_INK;
-	const lineHeight = bodyFontSize * 1.55;
-	let y = h * 0.16;
+	const lineHeight = bodyFontSize * ABOUT_LINE_HEIGHT_FACTOR;
+	let y = h * ABOUT_BODY_TOP_FRACTION;
 	for (const line of lines) {
 		ctx.fillText(line, marginX, y);
 		y += lineHeight;
@@ -288,14 +337,20 @@ export function makeSpreads(identity: BookIdentity, quality: Quality): SpreadSet
 
 	let aboutLines: string[] = [];
 	let aboutFontSize = 0;
+	let aboutMaxLinesPerPage = 0;
 	if (hasDescription) {
 		const marginX = w * ABOUT_MARGIN_X_FRACTION;
 		const aboutMaxWidth = w - marginX * 2;
 		aboutFontSize = fitAboutFontSize(measureCtx, ABOUT_TARGET_CHARS_PER_LINE, aboutMaxWidth, trimmedDescription);
+		// QA round 1, Finding 5: derived from THIS book's actual fitted font
+		// size/canvas height, not a fixed line count — see
+		// computeAboutMaxLinesPerPage's doc comment for why the old fixed
+		// value could overflow the canvas.
+		aboutMaxLinesPerPage = computeAboutMaxLinesPerPage(h, aboutFontSize);
 		measureCtx.font = `${aboutFontSize}px ${SERIF_STACK}`;
-		aboutLines = wrapText(measureCtx, trimmedDescription, aboutMaxWidth, ABOUT_MAX_LINES_PER_PAGE * ABOUT_MAX_PAGES);
+		aboutLines = wrapText(measureCtx, trimmedDescription, aboutMaxWidth, aboutMaxLinesPerPage * ABOUT_MAX_PAGES);
 	}
-	const aboutPageCount = aboutLines.length === 0 ? 0 : aboutLines.length > ABOUT_MAX_LINES_PER_PAGE ? 2 : 1;
+	const aboutPages = paginateAboutLines(aboutLines, aboutMaxLinesPerPage);
 
 	const textures: THREE.CanvasTexture[] = [];
 	const labels: string[] = [];
@@ -303,12 +358,10 @@ export function makeSpreads(identity: BookIdentity, quality: Quality): SpreadSet
 	textures.push(paintTexture(w, h, (ctx) => paintTitlePage(ctx, w, h, identity, headingInk)));
 	labels.push('Title page');
 
-	for (let page = 0; page < aboutPageCount; page++) {
-		const start = page * ABOUT_MAX_LINES_PER_PAGE;
-		const pageLines = aboutLines.slice(start, start + ABOUT_MAX_LINES_PER_PAGE);
+	aboutPages.forEach((pageLines, page) => {
 		textures.push(paintTexture(w, h, (ctx) => paintAboutPage(ctx, w, h, pageLines, aboutFontSize, headingInk)));
-		labels.push(aboutPageCount === 1 ? 'About' : `About (${page + 1} of ${aboutPageCount})`);
-	}
+		labels.push(aboutPages.length === 1 ? 'About' : `About (${page + 1} of ${aboutPages.length})`);
+	});
 
 	textures.push(paintTexture(w, h, (ctx) => paintColophonPage(ctx, w, h, identity, headingInk)));
 	labels.push('Details');

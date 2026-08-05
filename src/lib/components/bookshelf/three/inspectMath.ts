@@ -61,21 +61,42 @@ export function lerpPose(a: Pose, b: Pose, t: number, out: PoseTargets): void {
 // the inspect sidebar.
 const SAFE_WIDTH_FRACTION = 0.72;
 
+// QA round 1, Finding 2: the width-only fit above left the WHOLE book
+// (top/bottom edges, or the open two-page footprint) overflowing the frame
+// vertically at wide/short book aspects — computeInspectScale only ever
+// solved for width, so a book tall relative to its width-driven scale simply
+// ran off the top/bottom of the canvas with no margin. `SAFE_HEIGHT_FRACTION`
+// mirrors `SAFE_WIDTH_FRACTION`'s role for the vertical axis: the book's full
+// height should occupy ~82% of the frame height (a bit more headroom than the
+// width fraction since the sidebar only eats into width, not height).
+const SAFE_HEIGHT_FRACTION = 0.82;
+
 /**
- * Uniform scale so the inspected book renders at ~72% of the safe width:
- * `(safeWidth/viewport) * 0.72 * (frustumWidthAtBook / bookWidth)`.
- * `frustumWidthAtBook` — the world-space width visible across the *full*
- * viewport at the book's depth (`2·tan(fov/2)·distance·aspect`) — is an
- * explicit parameter rather than derived here from camera/scene state, so
- * this stays pure THREE-math with no WebGL/camera coupling; the caller
- * (inspect.ts) owns fov/distance/aspect alongside its own named,
+ * Uniform scale so the inspected book fits BOTH axes of the frame with a
+ * margin — `min(widthFit, heightFit)`, so neither the width nor the height
+ * constraint is ever violated regardless of the book's aspect ratio:
+ *  - `widthFit`: book ≈ 72% of the "safe" width (§4.3) — the canvas width not
+ *    covered by the inspect sidebar. `(safeWidth/viewport) * 0.72 *
+ *    (frustumWidthAtBook / bookWidth)`.
+ *  - `heightFit`: book ≈ 82% of the full frame height (no sidebar reduces
+ *    height, so no safe-height/viewport-height ratio term is needed):
+ *    `0.82 * (frustumHeightAtBook / bookHeight)`.
+ * `frustumWidthAtBook`/`frustumHeightAtBook` — the world-space width/height
+ * visible at the book's depth (`2·tan(fov/2)·distance` for height, `×aspect`
+ * for width) — are explicit parameters rather than derived here from camera/
+ * scene state, so this stays pure THREE-math with no WebGL/camera coupling;
+ * the caller (inspect.ts) owns fov/distance/aspect alongside its own named,
  * one-line-retunable inspect camera/book position constants.
  */
 export function inspectScale(
 	bookWidth: number,
+	bookHeight: number,
 	safeWidthPx: number,
 	viewportWidthPx: number,
-	frustumWidthAtBook: number
+	frustumWidthAtBook: number,
+	frustumHeightAtBook: number
 ): number {
-	return (safeWidthPx / viewportWidthPx) * SAFE_WIDTH_FRACTION * (frustumWidthAtBook / bookWidth);
+	const widthFit = (safeWidthPx / viewportWidthPx) * SAFE_WIDTH_FRACTION * (frustumWidthAtBook / bookWidth);
+	const heightFit = SAFE_HEIGHT_FRACTION * (frustumHeightAtBook / bookHeight);
+	return Math.min(widthFit, heightFit);
 }

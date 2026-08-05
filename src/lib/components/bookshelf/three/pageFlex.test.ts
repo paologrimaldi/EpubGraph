@@ -10,7 +10,9 @@ import {
 	nextSpread,
 	canClaimPageDrag,
 	canClaimAnyGesture,
-	type FlexState
+	shouldResetSpreadOnClose,
+	type FlexState,
+	type CoverDrag
 } from './pageFlex';
 
 describe('coverOpenAmount', () => {
@@ -250,5 +252,75 @@ describe('canClaimAnyGesture (final review fix, Important 1: cover/page mutual e
 		expect(claimedByB).toBe(false);
 		if (claimedByB) pagePointerId = 2; // must not run
 		expect(pagePointerId).toBe(null);
+	});
+});
+
+describe('shouldResetSpreadOnClose (QA round 1, Finding 3/6: stale currentSpread after cover close)', () => {
+	it('false while the book is still open', () => {
+		expect(shouldResetSpreadOnClose(true, false, 1, 2)).toBe(false);
+	});
+	it('false while a drag is still deciding open vs. closed, even at openAmount 0', () => {
+		expect(shouldResetSpreadOnClose(false, true, 0, 2)).toBe(false);
+	});
+	it('false while the cover has not yet finished easing shut', () => {
+		expect(shouldResetSpreadOnClose(false, false, 0.2, 2)).toBe(false);
+	});
+	it('false once already reset — a one-time edge trigger, not a per-frame re-run', () => {
+		expect(shouldResetSpreadOnClose(false, false, 0, 0)).toBe(false);
+	});
+	it('true exactly when settled closed, no drag, and there is a stale spread to clear', () => {
+		expect(shouldResetSpreadOnClose(false, false, 0, 2)).toBe(true);
+	});
+
+	it('regression: open → turn twice → close (drag-commit) → settled state is spread 0, every leaf resting — matches the reported "stuck to the cover" repro', () => {
+		const spreadCount = 4; // e.g. title/about/colophon-ish fixture
+		let currentSpread = 0;
+		let readingOpen = false;
+		let coverDrag: CoverDrag = { active: false, kind: null, progress: 0 };
+
+		// Open the cover.
+		readingOpen = true;
+		expect(leafTargets(0, currentSpread, coverOpenAmount(readingOpen, coverDrag)).angle).toBe(0);
+
+		// Turn to page 2 via two committed HUD/drag turns.
+		currentSpread = nextSpread(currentSpread, 1, spreadCount);
+		currentSpread = nextSpread(currentSpread, 1, spreadCount);
+		expect(currentSpread).toBe(2);
+		// Sanity: with the cover open, leaves 0 and 1 now read as turned.
+		const openAmountWhileOpen = coverOpenAmount(readingOpen, coverDrag);
+		expect(leafTargets(0, currentSpread, openAmountWhileOpen).angle).toBeLessThan(-2);
+		expect(leafTargets(1, currentSpread, openAmountWhileOpen).angle).toBeLessThan(-2);
+
+		// Drag the cover closed and commit (mirrors inspect.ts's
+		// handleCoverPointerUp: coverDrag clears, then readingOpen flips
+		// false via setReadingOpen).
+		coverDrag = { active: false, kind: null, progress: 0 };
+		readingOpen = false;
+		const openAmountAfterClose = coverOpenAmount(readingOpen, coverDrag);
+		expect(openAmountAfterClose).toBe(0);
+
+		// The bug: without the fix, currentSpread is still 2 here.
+		expect(shouldResetSpreadOnClose(readingOpen, coverDrag.active, openAmountAfterClose, currentSpread)).toBe(
+			true
+		);
+		// inspect.ts's updateCoverPivot applies the reset the frame this
+		// becomes true (resetLeafPivots → resetLeafFlexState).
+		currentSpread = 0;
+		expect(currentSpread).toBe(0);
+
+		// Now simulate the regrab-open drag the user reported ("lands on
+		// page 3"): with the fix, currentSpread is 0, so no leaf is "turned"
+		// as the cover opens back up — every leaf tracks the cover 1:1 at
+		// rest, never gluing to it.
+		coverDrag = { active: true, kind: 'cover-open', progress: 1 };
+		const reopenAmount = coverOpenAmount(false, coverDrag);
+		for (let leaf = 0; leaf < 6; leaf++) {
+			expect(leafTargets(leaf, currentSpread, reopenAmount).angle).toBe(0);
+			expect(leafTargets(leaf, currentSpread, reopenAmount).z).toBe(0);
+		}
+
+		// And the reset is idempotent — asking again with the same
+		// (now-zeroed) state must not re-trigger.
+		expect(shouldResetSpreadOnClose(false, false, 0, currentSpread)).toBe(false);
 	});
 });
