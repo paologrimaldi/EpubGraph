@@ -84,6 +84,9 @@
 	let darkModeObserver: MutationObserver | null = null;
 	let currentDarkMode = false;
 	let dustSettleStart: number | null = null;
+	// Same rationale as carousel.ts's bobPhase: drift off accumulated dt, not
+	// absolute `elapsed`, so parking the loop and resuming doesn't jump the motes.
+	let dustPhase = 0;
 	let shelfTop = 0.47; // fallback until initScene loads the real SHELF_TOP constant
 	let rigs: RigHandle[] = [];
 	let lastIdKey: string | null = null;
@@ -183,8 +186,12 @@
 		if (dustSettleStart === null) dustSettleStart = elapsed;
 		let dustSettling = false;
 		if (room?.dust) {
+			dustPhase += dt;
 			room.dust.rotation.y += dt * 0.015;
-			room.dust.position.y = Math.sin(elapsed * 0.15) * 0.02;
+			room.dust.position.y = Math.sin(dustPhase * 0.15) * 0.02;
+			// Intro-only liveness: the motes drift for DUST_SETTLE_SECONDS after
+			// the scene appears, then stop asking for frames. Past that point dust
+			// still animates, but only on frames some other channel already earned.
 			dustSettling = elapsed - dustSettleStart < DUST_SETTLE_SECONDS;
 		}
 		const carouselMoving = carousel?.update(dt, elapsed) ?? false;

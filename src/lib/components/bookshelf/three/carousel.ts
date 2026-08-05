@@ -90,6 +90,11 @@ export function createCarousel(
 	let hoveredPointerNdc = { x: 0, y: 0 };
 	let selectionChangeCb: ((index: number) => void) | null = null;
 	let detachedRig: RigHandle | null = null;
+	// Ambient-bob phase. Advanced by dt on every frame we actually render
+	// rather than read off absolute `elapsed`, so that parking the on-demand
+	// loop and resuming it later picks the sine up exactly where it stopped
+	// instead of teleporting the book to wherever wall-clock had moved on to.
+	let bobPhase = 0;
 
 	function count(): number {
 		return runtimes.length;
@@ -214,11 +219,13 @@ export function createCarousel(
 		hoveredPointerNdc = pointerNdc;
 	}
 
-	function update(dt: number, elapsed: number): boolean {
+	function update(dt: number, _elapsed: number): boolean {
 		const n = count();
 		if (n === 0) return false;
 		const reduced = opts.reducedMotion();
 		const wrap = shouldWrap(n);
+
+		if (!reduced) bobPhase += dt * BOB_FREQUENCY;
 
 		let unsettled = false;
 
@@ -331,13 +338,14 @@ export function createCarousel(
 				if (!rigSettled) unsettled = true;
 			}
 
-			// Bob is a perpetual sine of `elapsed` — it never itself reaches an
-			// "eps-settled" state, so the focused (and any partially-focused
-			// neighbor) book's breathing motion legitimately keeps the on-demand
-			// loop alive at a low rate whenever reduced motion is off. 0-fps idle
-			// is reserved for reduced motion, where bob is zeroed outright.
-			const bobY = reduced ? 0 : Math.sin(elapsed * BOB_FREQUENCY + i * 0.8) * BOB_AMPLITUDE * pose.focus;
-			if (!reduced && pose.focus > 0) unsettled = true;
+			// Bob is a perpetual sine, so it can never eps-settle. It deliberately
+			// does NOT mark the frame unsettled: doing so pinned the on-demand
+			// loop at the display's full refresh rate forever, holding the GPU at
+			// 91% purely to breathe a 0.012-unit motion, which cost co-resident
+			// Ollama inference 3.37x (50.8 -> 15.1 tok/s). Bob now animates only
+			// while some *other* channel is genuinely moving, and freezes in place
+			// once the shelf comes to rest.
+			const bobY = reduced ? 0 : Math.sin(bobPhase + i * 0.8) * BOB_AMPLITUDE * pose.focus;
 			writeTransforms(runtime, bobY);
 		}
 

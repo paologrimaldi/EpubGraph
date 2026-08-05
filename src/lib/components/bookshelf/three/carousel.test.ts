@@ -76,23 +76,50 @@ function makeCarousel(n: number, reducedRef: { value: boolean }) {
 	return { carousel, rigs, shelfStage };
 }
 
-describe('carousel idle liveness (regression fixed in fc13198)', () => {
-	it('a settled shelf with reduced motion off keeps reporting unsettled (idle bob)', () => {
+describe('carousel idle liveness', () => {
+	// Reverses fc13198's "keep the loop alive for the idle bob". Reporting
+	// unsettled forever meant a PMREM-lit, fogged scene repainted at the
+	// display's full refresh rate (120Hz ProMotion / 5K external, DPR 2)
+	// purely to animate a 0.012-unit breathing sine. Measured: GPU pinned at
+	// 91% while idle, which starved co-resident Ollama inference — mistral
+	// dropped 50.8 -> 15.1 tok/s (3.37x) and the embedding backlog went from
+	// 3.6 to 11.6 days. Idle now parks at 0fps; bob resumes on interaction.
+	it('a settled shelf reports fully settled so the frame loop can park at 0fps', () => {
 		const reduced = { value: false };
 		const { carousel } = makeCarousel(3, reduced);
 		carousel.snapAll();
-		// Bob is a perpetual sine of elapsed for the focused (and any
-		// partially-focused) rig — it never itself eps-settles, so the
-		// on-demand frame loop must keep getting told "still moving" even
-		// when every eased channel has fully converged.
-		expect(carousel.update(1 / 60, 10)).toBe(true);
+		expect(carousel.update(1 / 60, 10)).toBe(false);
 	});
 
-	it('a settled shelf with reduced motion on reports fully settled (no perpetual repaint)', () => {
+	it('a settled shelf with reduced motion on also reports fully settled', () => {
 		const reduced = { value: true };
 		const { carousel } = makeCarousel(3, reduced);
 		carousel.snapAll();
 		expect(carousel.update(1 / 60, 10)).toBe(false);
+	});
+
+	it('still reports unsettled while the carousel is genuinely moving', () => {
+		const reduced = { value: false };
+		const { carousel } = makeCarousel(5, reduced);
+		carousel.snapAll();
+		carousel.navigateTo(3);
+		expect(carousel.update(1 / 60, 10)).toBe(true);
+	});
+
+	// Bob is driven by an internal phase accumulator rather than absolute
+	// `elapsed`, so parking and resuming does not teleport the book: the sine
+	// picks up exactly where it stopped no matter how long the loop was idle.
+	it('bob resumes from its frozen phase, not from wall-clock elapsed', () => {
+		const reduced = { value: false };
+		const { carousel, rigs } = makeCarousel(3, reduced);
+		carousel.snapAll();
+		carousel.update(1 / 60, 10);
+		const yBeforeIdle = rigs[carousel.selectedIndex].motion.position.y;
+		// Loop parks for a simulated 500s of wall clock, then one frame resumes.
+		carousel.update(1 / 60, 510);
+		const yAfterIdle = rigs[carousel.selectedIndex].motion.position.y;
+		// One frame of phase advance is dt*BOB_FREQUENCY = 0.012 rad -> tiny.
+		expect(Math.abs(yAfterIdle - yBeforeIdle)).toBeLessThan(0.002);
 	});
 });
 
