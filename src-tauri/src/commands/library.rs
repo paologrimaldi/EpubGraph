@@ -352,6 +352,14 @@ pub async fn cleanup_orphaned_books(
             if let Err(e) = state.db.delete_book(book_id) {
                 tracing::warn!("Failed to delete orphaned book {}: {}", book_id, e);
             } else {
+                // The embeddings row itself is already gone via ON DELETE
+                // CASCADE — this call is specifically to evict the in-memory
+                // cache, which the cascade cannot reach. Without it the vector
+                // survives until the next app start and keeps scoring in
+                // find_similar under a book id that no longer resolves.
+                if let Err(e) = state.vector_store.delete_embedding(book_id) {
+                    tracing::warn!("Failed to evict cached embedding for {}: {}", book_id, e);
+                }
                 removed += 1;
             }
         }

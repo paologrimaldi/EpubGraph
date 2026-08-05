@@ -4,6 +4,7 @@
 
 use crate::db::Database;
 use crate::epub::EpubParser;
+use crate::vector::VectorStore;
 use crate::AppResult;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
@@ -73,7 +74,17 @@ impl LibraryWatcher {
     }
 
     /// Process pending events (non-blocking)
-    pub fn process_events(&self, db: &Database) -> Vec<WatcherEvent> {
+    /// Drain and apply pending filesystem events.
+    ///
+    /// Takes the `VectorStore` as well as the `Database` because deleting a book
+    /// must evict its cached vector: ON DELETE CASCADE clears the table row but
+    /// cannot reach the in-memory DashMap, leaving a dead id scoring in
+    /// find_similar until the next app start.
+    ///
+    /// NOTE: `LibraryWatcher` is not currently constructed anywhere in the app,
+    /// so this path is presently inert. The parameter is threaded now so wiring
+    /// the watcher up later cannot silently reintroduce the stale-cache bug.
+    pub fn process_events(&self, db: &Database, vector_store: &VectorStore) -> Vec<WatcherEvent> {
         let mut events = Vec::new();
 
         if let Some(ref rx) = self.event_receiver {
@@ -94,7 +105,7 @@ impl LibraryWatcher {
 
         // Process events and update database
         for event in &events {
-            if let Err(e) = self.handle_event(event, db) {
+            if let Err(e) = self.handle_event(event, db, vector_store) {
                 tracing::error!("Failed to handle watch event: {}", e);
             }
         }
@@ -123,7 +134,7 @@ impl LibraryWatcher {
     }
 
     /// Handle a watcher event
-    fn handle_event(&self, event: &WatcherEvent, db: &Database) -> AppResult<()> {
+    fn handle_event(&self, event: &WatcherEvent, db: &Database, vector_store: &VectorStore) -> AppResult<()> {
         match event {
             WatcherEvent::FileCreated(paths) => {
                 let parser = EpubParser::new();
@@ -180,6 +191,11 @@ impl LibraryWatcher {
                         if let Err(e) = db.delete_book(existing.id) {
                             tracing::warn!("Failed to delete book {}: {}", existing.id, e);
                         } else {
+                            // Cascade clears the embeddings row; this evicts the
+                            // in-memory cache the cascade cannot reach.
+                            if let Err(e) = vector_store.delete_embedding(existing.id) {
+                                tracing::warn!("Failed to evict cached embedding for {}: {}", existing.id, e);
+                            }
                             tracing::info!("Removed deleted book from watcher: {}", existing.title);
                         }
                     }

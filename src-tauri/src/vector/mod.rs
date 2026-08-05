@@ -38,9 +38,35 @@ impl VectorStore {
         Ok(store)
     }
 
+    /// Open a connection carrying the same pragmas the main `Database` pool sets.
+    ///
+    /// `synchronous` is the substantive one. A bare `Connection::open` inherits
+    /// SQLite's FULL, and under WAL that means an fsync on every commit — i.e.
+    /// one per `store_embedding`. The pool uses NORMAL; matching it here keeps
+    /// the two write paths consistent and drops those fsyncs.
+    ///
+    /// `foreign_keys` is defensive rather than corrective: libsqlite3-sys builds
+    /// its bundled SQLite with `-DSQLITE_DEFAULT_FOREIGN_KEYS=1`, so these
+    /// connections already enforce the embeddings -> books constraint (verified
+    /// by the tests below). Stating it explicitly means the invariant survives
+    /// dropping the bundled feature or linking a system SQLite, where the
+    /// default flips back to OFF and orphan embedding rows would become
+    /// writable — note the macOS `sqlite3` CLI reports `foreign_keys = 0`.
+    ///
+    /// `journal_mode = WAL` is persisted in the database file itself, so it is
+    /// inherited automatically and deliberately not repeated here.
+    fn open_conn(&self) -> AppResult<Connection> {
+        let conn = Connection::open(&self.db_path)?;
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA synchronous = NORMAL;",
+        )?;
+        Ok(conn)
+    }
+
     /// Initialize database schema for embeddings
     fn init_schema(&self) -> AppResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.open_conn()?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS embeddings (
@@ -64,7 +90,7 @@ impl VectorStore {
 
     /// Load all embeddings into cache
     pub fn load_cache(&self) -> AppResult<usize> {
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.open_conn()?;
 
         let mut stmt = conn.prepare("SELECT book_id, embedding FROM embeddings")?;
         let rows = stmt.query_map([], |row| {
@@ -104,7 +130,7 @@ impl VectorStore {
             )));
         }
 
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.open_conn()?;
         let blob = serialize_embedding(embedding);
 
         conn.execute(
@@ -127,7 +153,7 @@ impl VectorStore {
         }
 
         // Load from database
-        let conn = Connection::open(&self.db_path).ok()?;
+        let conn = self.open_conn().ok()?;
         let blob: Vec<u8> = conn
             .query_row(
                 "SELECT embedding FROM embeddings WHERE book_id = ?",
@@ -144,7 +170,7 @@ impl VectorStore {
 
     /// Delete embedding for a book
     pub fn delete_embedding(&self, book_id: i64) -> AppResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.open_conn()?;
         conn.execute("DELETE FROM embeddings WHERE book_id = ?", [book_id])?;
         self.cache.remove(&book_id);
         Ok(())
@@ -187,7 +213,7 @@ impl VectorStore {
 
     /// Get count of stored embeddings
     pub fn count(&self) -> AppResult<i64> {
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.open_conn()?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
         Ok(count)
     }
@@ -198,7 +224,7 @@ impl VectorStore {
             return true;
         }
 
-        if let Ok(conn) = Connection::open(&self.db_path) {
+        if let Ok(conn) = self.open_conn() {
             let result: Result<i64, _> = conn.query_row(
                 "SELECT 1 FROM embeddings WHERE book_id = ?",
                 [book_id],
@@ -212,7 +238,7 @@ impl VectorStore {
 
     /// Clear all embeddings from the database and cache
     pub fn clear_all(&self) -> AppResult<i64> {
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.open_conn()?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
         conn.execute("DELETE FROM embeddings", [])?;
         self.cache.clear();
@@ -316,6 +342,79 @@ pub type SharedVectorStore = Arc<VectorStore>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
+
+    /// Build a store over a throwaway DB that has the `books` parent table, so
+    /// the embeddings FK has something real to reference.
+    fn store_with_books(ids: &[i64]) -> (TempDir, VectorStore) {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("t.db");
+        let path_str = path.to_str().unwrap().to_string();
+        {
+            let conn = Connection::open(&path_str).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT NOT NULL);",
+            )
+            .unwrap();
+            for id in ids {
+                conn.execute("INSERT INTO books (id, title) VALUES (?, 'b')", [id])
+                    .unwrap();
+            }
+        }
+        let store = VectorStore::new(&path_str).unwrap();
+        (temp, store)
+    }
+
+    /// Pins the invariant that VectorStore's own connections enforce the
+    /// embeddings -> books foreign key, so `store_embedding` cannot write a row
+    /// for a book deleted moments earlier — the batch loop holds a multi-second
+    /// window between `get_book` and `store_embedding`, and such a row would be
+    /// an orphan the ON DELETE CASCADE had already run past.
+    ///
+    /// This currently holds via libsqlite3-sys's `-DSQLITE_DEFAULT_FOREIGN_KEYS=1`
+    /// as well as the explicit pragma in `open_conn`, so it does NOT fail if that
+    /// pragma is removed today. It exists to catch the build-level change —
+    /// dropping the bundled feature or linking a system SQLite — that would
+    /// otherwise make orphans writable with no other signal.
+    #[test]
+    fn store_embedding_rejects_a_book_that_no_longer_exists() {
+        let (_temp, store) = store_with_books(&[1]);
+        let emb = vec![0.5f32; EMBEDDING_DIM];
+
+        // Sanity: a live book accepts an embedding.
+        store.store_embedding(1, &emb, "m", None).unwrap();
+
+        // Delete the parent, then try to write an embedding for the ghost id.
+        {
+            let conn = store.open_conn().unwrap();
+            conn.execute("DELETE FROM books WHERE id = 1", []).unwrap();
+        }
+        assert!(
+            store.store_embedding(1, &emb, "m", None).is_err(),
+            "FK must be enforced on VectorStore's own connections"
+        );
+    }
+
+    /// The cascade must actually fire for deletes issued on these connections —
+    /// enabling the pragma is what makes the declared ON DELETE CASCADE real.
+    #[test]
+    fn deleting_a_book_cascades_away_its_embedding() {
+        let (_temp, store) = store_with_books(&[7]);
+        store
+            .store_embedding(7, &vec![0.25f32; EMBEDDING_DIM], "m", None)
+            .unwrap();
+        assert_eq!(store.count().unwrap(), 1);
+
+        let conn = store.open_conn().unwrap();
+        conn.execute("DELETE FROM books WHERE id = 7", []).unwrap();
+        drop(conn);
+
+        assert_eq!(
+            store.count().unwrap(),
+            0,
+            "embeddings row should have been cascaded away with its book"
+        );
+    }
 
     #[test]
     fn test_cosine_similarity() {
