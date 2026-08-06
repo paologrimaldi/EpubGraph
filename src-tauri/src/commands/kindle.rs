@@ -75,20 +75,31 @@ pub fn validate_send(path: &Path, addr: &str) -> Result<(), SendError> {
 /// apostrophes and accented characters (the library is largely Spanish-language,
 /// e.g. `¿Crees en el amor a primera vista?`), which would both break naive
 /// interpolation and open an injection hole.
+/// The explicit `with timeout` is not decorative. AppleScript's default AppleEvent
+/// timeout is 120s, and the *first* time an app scripts Mail, macOS shows an
+/// Automation consent dialog that blocks the event until the user answers it.
+/// Observed during development: the first attempt died with
+/// `AppleEvent timed out (-1712)` purely because the prompt sat unanswered, and a
+/// draft was left half-built with the recipient set but no attachment. Once
+/// consent is granted the whole thing runs in ~0.6s. EpubGraph will trigger its
+/// own consent prompt on first use, so this guard is what stops that first run
+/// from failing.
 const MAIL_DRAFT_SCRIPT: &str = r#"
 on run argv
     set filePath to item 1 of argv
     set toAddress to item 2 of argv
     set msgSubject to item 3 of argv
     tell application "Mail"
-        set newMessage to make new outgoing message with properties {subject:msgSubject, content:"", visible:true}
-        tell newMessage
-            make new to recipient at end of to recipients with properties {address:toAddress}
-            tell content
-                make new attachment with properties {file name:(POSIX file filePath)} at after the last paragraph
+        with timeout of 600 seconds
+            set newMessage to make new outgoing message with properties {subject:msgSubject, content:"", visible:true}
+            tell newMessage
+                make new to recipient at end of to recipients with properties {address:toAddress}
+                tell content
+                    make new attachment with properties {file name:(POSIX file filePath)} at after the last paragraph
+                end tell
             end tell
-        end tell
-        activate
+            activate
+        end timeout
     end tell
 end run
 "#;
