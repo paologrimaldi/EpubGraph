@@ -542,6 +542,7 @@ impl Database {
                     "max_recommendations" => settings.max_recommendations = value.parse().unwrap_or(20),
                     "auto_scan_enabled" => settings.auto_scan_enabled = value == "1",
                     "scan_interval_minutes" => settings.scan_interval_minutes = value.parse().unwrap_or(60),
+                    "kindle_email" => settings.kindle_email = value,
                     _ => {}
                 }
             }

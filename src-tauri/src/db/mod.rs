@@ -207,6 +207,9 @@ pub struct Settings {
     pub max_recommendations: i32,
     pub auto_scan_enabled: bool,
     pub scan_interval_minutes: i32,
+    /// Amazon Send-to-Kindle address. An empty string means "not configured",
+    /// which is a first-class state rather than an error.
+    pub kindle_email: String,
 }
 
 impl Default for Settings {
@@ -219,6 +222,7 @@ impl Default for Settings {
             max_recommendations: 20,
             auto_scan_enabled: true,
             scan_interval_minutes: 60,
+            kindle_email: String::new(),
         }
     }
 }

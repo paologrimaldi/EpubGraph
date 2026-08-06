@@ -196,6 +196,10 @@ pub async fn update_settings(
         state.db.update_setting("scan_interval_minutes", &interval.to_string()).map_err(|e| e.to_string())?;
     }
 
+    if let Some(ref kindle_email) = settings.kindle_email {
+        state.db.update_setting("kindle_email", kindle_email.trim()).map_err(|e| e.to_string())?;
+    }
+
     Ok(())
 }
 
@@ -210,6 +214,7 @@ pub struct PartialSettings {
     pub max_recommendations: Option<i32>,
     pub auto_scan_enabled: Option<bool>,
     pub scan_interval_minutes: Option<i32>,
+    pub kindle_email: Option<String>,
 }
 
 /// Result of rebuilding graph edges

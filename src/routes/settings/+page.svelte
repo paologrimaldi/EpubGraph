@@ -50,6 +50,7 @@
 	let saving = false;
 
 	let ollamaEndpoint = 'http://localhost:11434';
+	let kindleEmail = '';
 	let ollamaModel = 'nomic-embed-text';
 	let ollamaChatModel = 'mistral:7b';
 	let autoScan = true;
@@ -109,6 +110,7 @@
 				ollamaModel = settings.ollamaModel || 'nomic-embed-text';
 				ollamaChatModel = settings.ollamaChatModel || 'mistral:7b';
 				autoScan = settings.autoScanEnabled ?? true;
+				kindleEmail = settings.kindleEmail || '';
 			}
 		} catch (error) {
 			console.error('Failed to load settings:', error);
@@ -132,7 +134,8 @@
 				ollamaEndpoint,
 				ollamaModel,
 				ollamaChatModel,
-				autoScanEnabled: autoScan
+				autoScanEnabled: autoScan,
+				kindleEmail
 			});
 			toast.success('Settings saved');
 		} catch (error) {
@@ -456,6 +459,23 @@
 						>
 							<span class="toggle-knob"></span>
 						</button>
+					</div>
+
+					<div class="mt-4">
+						<label for="kindle-email" class="block text-[12px] font-medium text-secondary mb-1.5">
+							Send-to-Kindle Address
+						</label>
+						<input
+							id="kindle-email"
+							type="text"
+							bind:value={kindleEmail}
+							class="glass-input"
+							placeholder="yourname@kindle.com"
+						/>
+						<p class="text-[11px] text-muted mt-1.5">
+							Find this in Amazon &rarr; Manage Your Content and Devices &rarr; Preferences.
+							The address you send <em>from</em> must also be approved there.
+						</p>
 					</div>
 				</section>
 

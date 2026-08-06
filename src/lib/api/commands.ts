@@ -179,6 +179,8 @@ export interface Settings {
 	maxRecommendations: number;
 	autoScanEnabled: boolean;
 	scanIntervalMinutes: number;
+	/** Amazon Send-to-Kindle address. Empty string means not configured. */
+	kindleEmail: string;
 }
 
 export interface BookUpdate {
