@@ -21,6 +21,7 @@
 		Loader2
 	} from 'lucide-svelte';
 	import { showTooltip, hideTooltip } from './Tooltip.svelte';
+	import EmbeddingBadge from './EmbeddingBadge.svelte';
 
 	function truncatable(node: HTMLElement, text: string) {
 		let currentText = text;
@@ -284,6 +285,11 @@
 						{book.series} #{book.seriesIndex ?? '?'}
 					</p>
 				{/if}
+				<!-- showPending is on here: one book, so "Not indexed" is information
+				     rather than the grid-wide noise it would be on a thumbnail. -->
+				<div class="mt-2">
+					<EmbeddingBadge status={book.embeddingStatus} variant="inline" showPending />
+				</div>
 			</div>
 		</div>
 

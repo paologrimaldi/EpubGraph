@@ -5,6 +5,7 @@
 	import { onMount } from 'svelte';
 	import { Star, BookOpen, EyeOff } from 'lucide-svelte';
 	import { showTooltip, hideTooltip } from './Tooltip.svelte';
+	import EmbeddingBadge from './EmbeddingBadge.svelte';
 
 	export let book: Book;
 	export let selected = false;
@@ -132,6 +133,9 @@
 					<span class="text-[10px] text-white font-medium">{book.rating}</span>
 				</div>
 			{/if}
+
+			<!-- Embedding status — bottom-right, the one corner left free -->
+			<EmbeddingBadge status={book.embeddingStatus} />
 		</div>
 
 		<!-- Info -->
