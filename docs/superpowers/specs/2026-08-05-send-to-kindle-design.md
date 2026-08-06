@@ -48,9 +48,15 @@ with a single insertion.** No per-route work is required.
 `openFile()` (`BookDetail.svelte:149-152`) is the only handler in that file with no
 `try`/`catch` — compare the `.catch(...)` at lines 105 and 122 and the `try` blocks at
 158, 169, 185. When `open` fails, the promise rejects and nothing reaches the user, so
-the button looks dead. This is not hypothetical: the library lives on an external
-volume (`/Volumes/Extreme_Pro`) and at time of writing **0 of 200 sampled book paths
-resolved** because that volume was unmounted. Both buttons must surface errors.
+the button looks dead.
+
+This is not hypothetical, and the failure is **intermittent**, which is what makes it
+worth guarding. The library lives entirely on an external volume
+(`/Volumes/Extreme_Pro`, all 70,266 books). Over a single session that volume was
+observed mounted, then absent — `0 of 200` sampled paths resolving, with only the
+2.5 MB `SanDisk Unlocker` helper partition present — then mounted again with `50 of 50`
+resolving. A user hitting the unmounted window gets a button that does nothing and no
+indication why. Both buttons must surface errors.
 
 ---
 
@@ -109,17 +115,20 @@ Guard chain, evaluated in order. Each arm returns a distinct, actionable message
 | 2 | book row exists | `That book is no longer in your library` |
 | 3 | file exists on disk | `File not found — is the external drive connected?` |
 | 4 | size ≤ 50 MB | `Kindle rejects attachments over 50 MB (this book is 62 MB)` |
-| 5 | Mail.app has an account | `Apple Mail has no account configured` |
 
 Ordering is deliberate: the cheap configuration checks run before the filesystem
 `stat`, and nothing launches Mail until every precondition holds.
 
 Check 3 is the one that matters most in practice — see §2.
 
-Check 5 is a presence test for `~/Library/Mail`. It is a heuristic, not a guarantee
-that a *sendable* account exists, and it is there to convert a confusing Mail setup
-wizard into a clear message. If it proves unreliable in practice, drop it rather than
-elaborate it — the AppleScript failure is caught regardless.
+**There is deliberately no "does Mail have an account" precheck.** An earlier draft of
+this spec proposed probing `~/Library/Mail`. That path is TCC-protected: reading it
+returns `Operation not permitted` even to the user's own shell, so the probe cannot
+distinguish "no account" from "not permitted", and attempting it would either fail
+spuriously or provoke a privacy prompt for no benefit. Mail-side problems surface
+through the AppleScript's own error instead (§5), which is both accurate and already
+required for the cases a precheck could never catch — no *sendable* account, Mail
+refusing, the user cancelling.
 
 The 50 MB limit lives in one named constant, `KINDLE_MAX_ATTACHMENT_BYTES`.
 
@@ -182,8 +191,8 @@ missing-file and oversize checks awkward to order. `tempfile` gives the tests re
 files to stat.
 
 This covers guards 1, 3 and 4 plus address format. Guard 2 (book row exists) is a
-database lookup and guard 5 (Mail account) probes the home directory, so both stay in
-the command and are exercised by the manual verification rather than unit tests.
+database lookup, so it stays in the command and is exercised by the manual
+verification rather than a unit test.
 
 Rust unit tests, using `tempfile` as the existing suite does:
 
