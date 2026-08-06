@@ -2,6 +2,7 @@
 
 pub mod books;
 pub mod export;
+pub mod kindle;
 pub mod library;
 pub mod ollama;
 pub mod recommendations;
