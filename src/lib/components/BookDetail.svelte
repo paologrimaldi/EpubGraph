@@ -22,6 +22,58 @@
 	} from 'lucide-svelte';
 	import { showTooltip, hideTooltip } from './Tooltip.svelte';
 	import EmbeddingBadge from './EmbeddingBadge.svelte';
+	import TextOverlay from './TextOverlay.svelte';
+
+	let descriptionOpen = false;
+	let descriptionClamped = false;
+
+	// Reset when switching books, so a long description's "Read more" state does
+	// not leak onto the next book before the observer re-measures.
+	$: book, (descriptionOpen = false);
+
+	/**
+	 * Flags whether `line-clamp-6` is actually hiding text, so "Read more" only
+	 * appears when there is more to read. Replaces the hover tooltip that used to
+	 * carry the description: that popover capped out at 300px with an
+	 * `overflow-y: auto` scrollbar nobody could reach, because it hid itself
+	 * 100ms after the pointer left the paragraph.
+	 */
+	function clampDetect(node: HTMLElement, text: string) {
+		let currentText = text;
+
+		const check = () => {
+			// Measure with the clamp lifted. Reading scrollHeight on an element
+			// that is still `-webkit-line-clamp`ed reports the *clamped* height in
+			// WKWebView, so the naive `scrollHeight > clientHeight` test silently
+			// returns false and the button never appears — observed in the release
+			// build before this workaround. Unsetting the clamp for the duration of
+			// the read gives the true content height.
+			const clamped = node.clientHeight;
+			const previous = node.style.webkitLineClamp;
+			node.style.webkitLineClamp = 'unset';
+			const full = node.scrollHeight;
+			node.style.webkitLineClamp = previous;
+
+			// The length test is a safety net: if a future engine reports both
+			// heights identically, anything past ~6 lines at this panel width still
+			// offers the overlay rather than hiding text with no way to reach it.
+			descriptionClamped = full > clamped + 1 || currentText.length > 320;
+		};
+
+		requestAnimationFrame(check);
+		const observer = new ResizeObserver(check);
+		observer.observe(node);
+		return {
+			update(text: string) {
+				currentText = text;
+				// Wait for the new text to lay out before measuring it.
+				requestAnimationFrame(check);
+			},
+			destroy() {
+				observer.disconnect();
+			}
+		};
+	}
 
 	function truncatable(node: HTMLElement, text: string) {
 		let currentText = text;
@@ -336,7 +388,16 @@
 				<h4 class="text-[11px] font-semibold text-muted uppercase tracking-widest mb-2">
 					Description
 				</h4>
-				<p class="text-[13px] leading-relaxed text-secondary line-clamp-6" use:truncatable={book.description}>{book.description}</p>
+				<p class="text-[13px] leading-relaxed text-secondary line-clamp-6" use:clampDetect={book.description}>{book.description}</p>
+				{#if descriptionClamped}
+					<button
+						class="mt-1.5 text-[12px] font-medium"
+						style="color: var(--gw-accent-text)"
+						on:click={() => (descriptionOpen = true)}
+					>
+						Read more
+					</button>
+				{/if}
 			</div>
 		{/if}
 
@@ -509,3 +570,10 @@
 		{/if}
 	</div>
 </div>
+
+<TextOverlay
+	open={descriptionOpen}
+	title={book.title}
+	text={book.description ?? ''}
+	on:close={() => (descriptionOpen = false)}
+/>
