@@ -141,6 +141,9 @@ impl OllamaClient {
             model: model.to_string(),
             prompt: prompt.to_string(),
             stream: false,
+            options: ChatOptions {
+                temperature: SUMMARY_TEMPERATURE,
+            },
         };
 
         let response = self.client
@@ -234,7 +237,25 @@ struct ChatRequest {
     model: String,
     prompt: String,
     stream: bool,
+    options: ChatOptions,
 }
+
+/// Sampling options sent with every summary request.
+///
+/// Previously nothing was sent, so generation ran on whatever the model's
+/// Modelfile defined — mistral:7b defaults to temperature 0.8.
+#[derive(Serialize)]
+struct ChatOptions {
+    temperature: f32,
+}
+
+/// Sampling temperature for summary generation.
+///
+/// Note this makes summaries *less* repeatable, not more: the same book
+/// summarised twice will produce different text, and a re-embed after clearing
+/// embeddings will not reproduce the previous vector. That is the intended
+/// trade for more varied prose.
+const SUMMARY_TEMPERATURE: f32 = 1.0;
 
 #[derive(Deserialize)]
 struct ChatResponse {
@@ -393,6 +414,26 @@ fn truncate_and_normalize(embedding: &[f32], target_dim: usize) -> Vec<f32> {
 mod tests {
     use super::*;
     
+    /// Pins the request wire format. Ollama silently ignores unknown or
+    /// misplaced fields, so a typo here would mean the temperature never applies
+    /// and generation quietly keeps running on the model's own default.
+    #[test]
+    fn chat_request_sends_temperature_under_options() {
+        let json = serde_json::to_value(ChatRequest {
+            model: "mistral:7b".to_string(),
+            prompt: "p".to_string(),
+            stream: false,
+            options: ChatOptions {
+                temperature: SUMMARY_TEMPERATURE,
+            },
+        })
+        .unwrap();
+
+        assert_eq!(json["options"]["temperature"], 1.0);
+        assert_eq!(json["model"], "mistral:7b");
+        assert_eq!(json["stream"], false);
+    }
+
     #[test]
     fn test_embedding_text_generation() {
         let subjects = vec!["Fiction".to_string(), "Classic".to_string()];
