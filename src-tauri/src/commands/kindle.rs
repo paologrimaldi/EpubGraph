@@ -4,7 +4,10 @@
 //! performs EPUB conversion server-side, so this module only has to produce the
 //! draft. It never sends — the user reviews and sends.
 
+use crate::state::AppState;
 use std::path::Path;
+use std::sync::Arc;
+use tauri::State;
 
 /// Amazon rejects Send-to-Kindle attachments above this size.
 pub const KINDLE_MAX_ATTACHMENT_BYTES: u64 = 50 * 1024 * 1024;
@@ -65,6 +68,86 @@ pub fn validate_send(path: &Path, addr: &str) -> Result<(), SendError> {
     }
 
     Ok(())
+}
+
+/// Receives path/address/subject via `on run argv` so nothing is interpolated
+/// into the script text. This is not stylistic: book paths here contain
+/// apostrophes and accented characters (the library is largely Spanish-language,
+/// e.g. `¿Crees en el amor a primera vista?`), which would both break naive
+/// interpolation and open an injection hole.
+const MAIL_DRAFT_SCRIPT: &str = r#"
+on run argv
+    set filePath to item 1 of argv
+    set toAddress to item 2 of argv
+    set msgSubject to item 3 of argv
+    tell application "Mail"
+        set newMessage to make new outgoing message with properties {subject:msgSubject, content:"", visible:true}
+        tell newMessage
+            make new to recipient at end of to recipients with properties {address:toAddress}
+            tell content
+                make new attachment with properties {file name:(POSIX file filePath)} at after the last paragraph
+            end tell
+        end tell
+        activate
+    end tell
+end run
+"#;
+
+fn open_mail_draft(path: &str, addr: &str, subject: &str) -> Result<(), String> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(MAIL_DRAFT_SCRIPT)
+        .arg(path)
+        .arg(addr)
+        .arg(subject)
+        .output()
+        .map_err(|e| format!("Could not run osascript: {}", e))?;
+
+    if !output.status.success() {
+        // Surface Mail's own error verbatim rather than replacing it with a
+        // generic string, so a mail-side problem stays diagnosable. This is also
+        // why there is no "does Mail have an account" precheck: ~/Library/Mail is
+        // TCC-protected and returns "Operation not permitted" even to the user's
+        // own shell, so a probe could not tell "no account" from "not permitted".
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "Apple Mail could not create the draft".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
+}
+
+/// Opens an Apple Mail draft with the book attached and the stored Kindle
+/// address prefilled. Never sends — the user reviews and sends.
+///
+/// Takes a book id rather than a path so the current path is re-read from the
+/// database instead of trusting whatever the frontend last rendered.
+#[tauri::command]
+pub async fn send_book_to_kindle(
+    state: State<'_, Arc<AppState>>,
+    book_id: i64,
+) -> Result<(), String> {
+    let settings = state.db.get_settings().map_err(|e| e.to_string())?;
+    let addr = settings.kindle_email.trim().to_string();
+
+    // Guard 1 up front, so an unconfigured address costs no database work.
+    if addr.is_empty() {
+        return Err(SendError::NoKindleAddress.user_message());
+    }
+
+    // Guard 2.
+    let book = state
+        .db
+        .get_book(book_id)
+        .map_err(|_| "That book is no longer in your library".to_string())?;
+
+    // Guards 3 and 4 (plus address format again, keeping validate_send whole).
+    validate_send(Path::new(&book.path), &addr).map_err(|e| e.user_message())?;
+
+    open_mail_draft(&book.path, &addr, &book.title)
 }
 
 #[cfg(test)]

@@ -85,6 +85,7 @@ fn main() {
             commands::upnext::get_up_next_count,
             commands::upnext::get_want_to_read_books,
             commands::open_file_with_default_app,
+            commands::kindle::send_book_to_kindle,
         ])
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();
