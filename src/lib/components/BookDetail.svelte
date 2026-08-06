@@ -15,6 +15,7 @@
 		BookMarked,
 		Sparkles,
 		ExternalLink,
+		Send,
 		ListPlus,
 		ListMinus,
 		Loader2
@@ -145,9 +146,43 @@
 		}
 	}
 
+	// Shared by both action buttons. Follows the existing `llmError` precedent
+	// rather than toast, because these messages are instructions the user needs
+	// to act on ("Set your Kindle address in Settings", "is the external drive
+	// connected?") and must persist while they act, not fade after a few seconds.
+	let actionError: string | null = null;
+	let isSendingToKindle = false;
+
 	async function openFile() {
-		const { invoke } = await import('@tauri-apps/api/core');
-		await invoke('open_file_with_default_app', { path: book.path });
+		actionError = null;
+		try {
+			const { invoke } = await import('@tauri-apps/api/core');
+			await invoke('open_file_with_default_app', { path: book.path });
+		} catch (error) {
+			// Previously the only handler here without a catch, so a failed open
+			// rejected silently and the button looked dead — which is exactly what
+			// happens whenever the external volume is unmounted.
+			console.error('Failed to open file:', error);
+			actionError =
+				typeof error === 'string'
+					? error
+					: 'Could not open this file. Is the external drive connected?';
+		}
+	}
+
+	async function sendToKindle() {
+		if (isSendingToKindle) return;
+		isSendingToKindle = true;
+		actionError = null;
+		try {
+			const { invoke } = await import('@tauri-apps/api/core');
+			await invoke('send_book_to_kindle', { bookId: book.id });
+		} catch (error) {
+			console.error('Failed to send to Kindle:', error);
+			actionError = typeof error === 'string' ? error : 'Could not create the email draft.';
+		} finally {
+			isSendingToKindle = false;
+		}
 	}
 
 	let isTogglingUpNext = false;
@@ -417,12 +452,30 @@
 
 	<!-- Actions — pinned to bottom -->
 	<div class="flex-none px-5 py-4 border-t border-[var(--gw-separator)] space-y-2">
+		{#if actionError}
+			<div class="p-3 rounded-lg" style="background: rgba(255, 59, 48, 0.06); border: 0.5px solid rgba(255, 59, 48, 0.12)">
+				<p class="text-[12px]" style="color: var(--gw-error)">{actionError}</p>
+			</div>
+		{/if}
 		<button
 			class="btn-primary w-full"
 			on:click={openFile}
 		>
 			<ExternalLink class="w-3.5 h-3.5" />
 			Open Book
+		</button>
+		<button
+			class="btn-secondary w-full flex items-center justify-center gap-2"
+			on:click={sendToKindle}
+			disabled={isSendingToKindle}
+		>
+			{#if isSendingToKindle}
+				<Loader2 class="w-3.5 h-3.5 animate-spin" />
+				Opening Mail…
+			{:else}
+				<Send class="w-3.5 h-3.5" />
+				Send to Kindle
+			{/if}
 		</button>
 		{#if context === 'library'}
 			<button
